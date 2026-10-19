@@ -2,7 +2,7 @@ import {createClient} from 'https://esm.sh/@supabase/supabase-js@2.49.10';
 import {SUPABASE_URL,SUPABASE_ANON_KEY} from './config.js';
 const $=id=>document.getElementById(id);
 const configured=SUPABASE_URL.startsWith('https://')&&SUPABASE_ANON_KEY.length>20;
-let sb=null,profile=null,session=null,docs=[],people=[],missing=[];
+let authClient=null,sb=null,profile=null,session=null,docs=[],people=[],missing=[];
 const safe=(s)=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const dateLabel=s=>new Date(s).toLocaleString('it-IT');
 const typeLabel={presenze:'Foglio presenze',ferie:'Ferie',rol:'ROL',legge104:'Legge 104',malattia:'Malattia'};
@@ -17,9 +17,10 @@ function node(tag,text,cls){const el=document.createElement(tag);if(text!=null)e
 function button(label,cb,outline=false){const b=node('button',label,'doc-button'+(outline?' outline':''));b.type='button';b.onclick=cb;return b}
 function showLogged(on){$('authArea').classList.toggle('hidden',on);$('loggedArea').classList.toggle('hidden',!on);$('workerArea').classList.toggle('hidden',!on||!profile?.active||profile.role==='admin');$('adminArea').classList.toggle('hidden',!on||!profile?.active||profile.role!=='admin')}
 async function boot(){if(!configured){$('setupAlert').textContent='Configurazione mancante: apri INSTALLAZIONE.md. I documenti NON vengono inviati.';showLogged(false);$('loginBtn').disabled=true;$('signupBtn').disabled=true;return}
- sb=createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{auth:{persistSession:true,autoRefreshToken:true}});$('setupAlert').classList.add('hidden');
- sb.auth.onAuthStateChange((_event,s)=>{session=s;setTimeout(()=>reloadAccount().catch(err),0)});
- const {data,error}=await sb.auth.getSession();if(error)throw error;session=data.session;await reloadAccount();
+ authClient=createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{auth:{persistSession:true,autoRefreshToken:true}});
+ sb=createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{accessToken:async()=>session?.access_token??null,global:{fetch:async(input,init={})=>{const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);try{return await fetch(input,{...init,signal:controller.signal})}finally{clearTimeout(timer)}}}});$('setupAlert').classList.add('hidden');
+ authClient.auth.onAuthStateChange((event,s)=>{session=s;if(event==='SIGNED_OUT'){profile=null;showLogged(false);msg('Accesso terminato.')}});
+ const {data,error}=await authClient.auth.getSession();if(error)throw error;session=data.session;await reloadAccount();
 }
 async function reloadAccount(){profile=null;if(session){const {data,error}=await sb.from('profiles').select('*').eq('id',session.user.id).single();if(error){err(error);showLogged(false);return}profile=data;$('accountName').textContent=profile.full_name||session.user.email;$('accountInfo').textContent=profile.active?(profile.role==='admin'?'Amministratore':profile.site||'Sede da assegnare'):'In attesa di abilitazione';}showLogged(!!session);if(!session){msg('Accedi o richiedi la registrazione.');return}if(!profile.active){msg('Registrazione ricevuta. L’amministratore deve abilitare il tuo account.');return}msg('Accesso effettuato.');if(profile.role==='admin')await refreshAdmin();else await refreshWorker()}
 $('loginBtn').onclick=async()=>{
@@ -28,7 +29,7 @@ $('loginBtn').onclick=async()=>{
  if(!email||!password){msg('Inserisci email e password.');return}
  b.disabled=true;b.textContent='Accesso in corso…';msg('Verifica delle credenziali…');
  try{
-  const {data,error}=await sb.auth.signInWithPassword({email,password});
+  const {data,error}=await authClient.auth.signInWithPassword({email,password});
   if(error)throw error;
   if(!data.session)throw new Error('Sessione non ricevuta. Riprova ad accedere.');
   session=data.session;msg('Accesso riuscito. Caricamento del pannello…');
@@ -36,8 +37,8 @@ $('loginBtn').onclick=async()=>{
   if(profile?.active)(profile.role==='admin'?$('adminArea'):$('workerArea')).scrollIntoView({behavior:'smooth',block:'start'});
  }catch(e){err(e)}finally{b.disabled=false;b.textContent='Accedi'}
 };
-$('signupBtn').onclick=async()=>{const email=$('email').value.trim(),password=$('password').value;if(!email||password.length<8){msg('Inserisci email e password di almeno 8 caratteri.');return}const full_name=prompt('Inserisci nome e cognome completi:');if(!full_name?.trim())return;const {error}=await sb.auth.signUp({email,password,options:{data:{full_name:full_name.trim()}}});if(error)err(error);else msg('Registrazione richiesta. Controlla la tua email per confermarla, poi attendi l’abilitazione.')};
-$('logoutBtn').onclick=()=>sb.auth.signOut();
+$('signupBtn').onclick=async()=>{const email=$('email').value.trim(),password=$('password').value;if(!email||password.length<8){msg('Inserisci email e password di almeno 8 caratteri.');return}const full_name=prompt('Inserisci nome e cognome completi:');if(!full_name?.trim())return;const {error}=await authClient.auth.signUp({email,password,options:{data:{full_name:full_name.trim()}}});if(error)err(error);else msg('Registrazione richiesta. Controlla la tua email per confermarla, poi attendi l’abilitazione.')};
+$('logoutBtn').onclick=()=>authClient.auth.signOut();
 $('month').onchange=refreshWorker;
 let action='weekly';function pick(a){action=a;if(!profile?.active)return;const m=$('month').value;if(a==='final'&&m>=monthNow()){if(!confirm('Il mese selezionato è ancora in corso. Il foglio definitivo deve comprendere tutti i giorni del mese. Continuare?'))return}if(a==='final'&&!confirm('Confermi che il foglio è completo per TUTTO il mese e firmato a mano?'))return;$('docPicker').value='';$('docPicker').click()}
 $('updateSheet').onclick=()=>pick('weekly');$('replaceSheet').onclick=()=>pick('replacement');$('finalSheet').onclick=()=>pick('final');$('uploadOther').onclick=()=>pick('request');
