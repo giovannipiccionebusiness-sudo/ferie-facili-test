@@ -1,0 +1,26 @@
+{
+  "name": "Ferie Facili — TEST",
+  "short_name": "Ferie TEST",
+  "description": "Versione di prova — presenze e documenti riservati",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#edf5f3",
+  "theme_color": "#0b7469",
+  "lang": "it",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "id": "./"
+}
