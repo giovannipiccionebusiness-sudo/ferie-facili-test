@@ -18,10 +18,24 @@ function button(label,cb,outline=false){const b=node('button',label,'doc-button'
 function showLogged(on){$('authArea').classList.toggle('hidden',on);$('loggedArea').classList.toggle('hidden',!on);$('workerArea').classList.toggle('hidden',!on||!profile?.active||profile.role==='admin');$('adminArea').classList.toggle('hidden',!on||!profile?.active||profile.role!=='admin')}
 async function boot(){if(!configured){$('setupAlert').textContent='Configurazione mancante: apri INSTALLAZIONE.md. I documenti NON vengono inviati.';showLogged(false);$('loginBtn').disabled=true;$('signupBtn').disabled=true;return}
  sb=createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{auth:{persistSession:true,autoRefreshToken:true}});$('setupAlert').classList.add('hidden');
- const {data}=await sb.auth.getSession();session=data.session;await reloadAccount();sb.auth.onAuthStateChange((_event,s)=>{session=s;setTimeout(()=>reloadAccount().catch(err),0)});
+ sb.auth.onAuthStateChange((_event,s)=>{session=s;setTimeout(()=>reloadAccount().catch(err),0)});
+ const {data,error}=await sb.auth.getSession();if(error)throw error;session=data.session;await reloadAccount();
 }
 async function reloadAccount(){profile=null;if(session){const {data,error}=await sb.from('profiles').select('*').eq('id',session.user.id).single();if(error){err(error);showLogged(false);return}profile=data;$('accountName').textContent=profile.full_name||session.user.email;$('accountInfo').textContent=profile.active?(profile.role==='admin'?'Amministratore':profile.site||'Sede da assegnare'):'In attesa di abilitazione';}showLogged(!!session);if(!session){msg('Accedi o richiedi la registrazione.');return}if(!profile.active){msg('Registrazione ricevuta. L’amministratore deve abilitare il tuo account.');return}msg('Accesso effettuato.');if(profile.role==='admin')await refreshAdmin();else await refreshWorker()}
-$('loginBtn').onclick=async()=>{const {error}=await sb.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});if(error)err(error)};
+$('loginBtn').onclick=async()=>{
+ const b=$('loginBtn');if(!sb){msg('Connessione in preparazione. Riprova tra qualche secondo.');return}
+ const email=$('email').value.trim(),password=$('password').value;
+ if(!email||!password){msg('Inserisci email e password.');return}
+ b.disabled=true;b.textContent='Accesso in corso…';msg('Verifica delle credenziali…');
+ try{
+  const {data,error}=await sb.auth.signInWithPassword({email,password});
+  if(error)throw error;
+  if(!data.session)throw new Error('Sessione non ricevuta. Riprova ad accedere.');
+  session=data.session;msg('Accesso riuscito. Caricamento del pannello…');
+  await reloadAccount();$('password').value='';
+  if(profile?.active)(profile.role==='admin'?$('adminArea'):$('workerArea')).scrollIntoView({behavior:'smooth',block:'start'});
+ }catch(e){err(e)}finally{b.disabled=false;b.textContent='Accedi'}
+};
 $('signupBtn').onclick=async()=>{const email=$('email').value.trim(),password=$('password').value;if(!email||password.length<8){msg('Inserisci email e password di almeno 8 caratteri.');return}const full_name=prompt('Inserisci nome e cognome completi:');if(!full_name?.trim())return;const {error}=await sb.auth.signUp({email,password,options:{data:{full_name:full_name.trim()}}});if(error)err(error);else msg('Registrazione richiesta. Controlla la tua email per confermarla, poi attendi l’abilitazione.')};
 $('logoutBtn').onclick=()=>sb.auth.signOut();
 $('month').onchange=refreshWorker;
