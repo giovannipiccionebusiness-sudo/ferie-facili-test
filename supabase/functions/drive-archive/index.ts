@@ -2,8 +2,8 @@
 import { createClient } from "npm:@supabase/supabase-js@2.49.10";
 const SUPABASE_ENDPOINT=Deno.env.get("SUPABASE_URL")!;
 const KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const CLIENT=Deno.env.get("GOOGLE_DRIVE_CLIENT_ID");
-const SECRET=Deno.env.get("GOOGLE_DRIVE_CLIENT_SECRET");
+const CLIENT=Deno.env.get("GOOGLE_DRIVE_CLIENT_ID")?.trim();
+const SECRET=Deno.env.get("GOOGLE_DRIVE_CLIENT_SECRET")?.trim();
 const REDIRECT=SUPABASE_ENDPOINT+"/functions/v1/drive-archive/callback";
 const APP="https://giovannipiccionebusiness-sudo.github.io";
 const SCOPE="https://www.googleapis.com/auth/drive.file";
@@ -16,10 +16,24 @@ const digest=async(s:string|ArrayBuffer)=>hex(await crypto.subtle.digest("SHA-25
 const random=()=>Array.from(crypto.getRandomValues(new Uint8Array(32)),x=>x.toString(16).padStart(2,"0")).join("");
 const base64url=(b:Uint8Array)=>btoa(String.fromCharCode(...b)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
 async function request(url:string,init:RequestInit={}){return await fetch(url,{...init,signal:AbortSignal.timeout(20000)});}
+function googleTokenError(code:string,status:number){
+ const messages:Record<string,string>={
+  invalid_client:"Google: invalid_client. ID client e client secret non corrispondono, oppure il segreto non è valido. Verifica i due Secrets Supabase usando lo stesso client Google.",
+  invalid_grant:"Google: invalid_grant. Codice scaduto, già utilizzato o verifica PKCE non riuscita. Torna all’app e avvia nuovamente Collega Google Drive.",
+  redirect_uri_mismatch:"Google: redirect_uri_mismatch. Registra esattamente la callback indicata nell’app nel client OAuth Google.",
+  unauthorized_client:"Google: unauthorized_client. Verifica che il client OAuth sia di tipo Applicazione web e autorizzato per questo flusso.",
+  invalid_request:"Google: invalid_request. La richiesta OAuth non è stata accettata; occorre verificare la configurazione."
+ };
+ return messages[code]||"Google token exchange failed (HTTP "+status+"). Riavvia il collegamento dall’app.";
+}
 async function token(body:Record<string,string>){
  if(!CLIENT||!SECRET)throw new Error("OAuth credentials missing");
  const r=await request("https://oauth2.googleapis.com/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({...body,client_id:CLIENT,client_secret:SECRET})});
- if(!r.ok)throw new Error("Google token exchange failed");
+ if(!r.ok){
+  const failure=await r.json().catch(()=>({}));
+  // Only fixed messages leave the backend: never return Google's raw response or request.
+  throw new Error(googleTokenError(typeof failure.error==="string"?failure.error:"",r.status));
+ }
  return await r.json();
 }
 async function admin(req:Request){
