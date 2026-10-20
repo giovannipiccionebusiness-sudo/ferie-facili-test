@@ -91,7 +91,17 @@ $('docPicker').onchange=async()=>{
  }catch(e){err(e);$('appMsg').scrollIntoView({behavior:'smooth',block:'center'});}
  finally{uploading=false;uploadButtons.forEach(id=>$(id).disabled=false);}
 };
-async function openFile(d){const {data,error}=await sb.storage.from('private-documents').createSignedUrl(d.file_path,90);if(error){err(error);return}const link=node('a','Apri il documento (link valido 90 secondi)');link.href=data.signedUrl;link.target='_blank';link.rel='noopener noreferrer';$('appMsg').replaceChildren(link)}
+async function openFile(d){
+ try{
+  msg('Apertura documento…');
+  const {data,error}=await sb.storage.from('private-documents').createSignedUrl(d.file_path,90);
+  if(error)throw error;
+  if(!data?.signedUrl)throw new Error('Collegamento al documento non disponibile. Riprova.');
+  // Same-tab navigation works after the asynchronous request without popup permissions.
+  // The browser Back action returns to the app; the private link expires after 90 seconds.
+  window.location.assign(data.signedUrl);
+ }catch(e){err(e);$('appMsg').scrollIntoView({behavior:'smooth',block:'center'});}
+}
 async function refreshWorker(){if(!profile?.active||profile.role==='admin')return;const {data,error}=await sb.from('documents').select('*').eq('worker_id',session.user.id).eq('month',$('month').value).order('created_at',{ascending:false});if(error){err(error);return}docs=data||[];const area=$('docList');area.replaceChildren();if(!docs.length)area.textContent='Nessun documento per questo mese.';
  for(const d of docs){const row=node('div',null,'doc-row'),left=node('div');left.append(node('strong',`${typeLabel[d.category]} · ${stageLabel[d.stage]}`),node('small',`${dateLabel(d.created_at)} · ${statusLabel[d.review_status]}`));if(d.review_reason)left.append(node('small','Motivo: '+d.review_reason));if(d.authorization==='approved')left.append(node('small','Richiesta autorizzata'));if(d.authorization==='denied')left.append(node('small','Richiesta non autorizzata'));row.append(left,button('Apri',()=>openFile(d),true));area.append(row)}
  const weeks=docs.filter(d=>['weekly','replacement'].includes(d.stage));const finals=docs.filter(d=>d.stage==='final');$('weeklySummary').textContent=`${weeks.length} caricamenti settimanali · ${finals.length? 'Foglio definitivo: '+statusLabel[finals[0].review_status]:'Foglio definitivo non ancora verificato'}`;
