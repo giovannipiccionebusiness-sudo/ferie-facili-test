@@ -1,0 +1,4 @@
+project_id = "vffnfulorjftailxyghp"
+
+[functions.drive-archive]
+verify_jwt = false

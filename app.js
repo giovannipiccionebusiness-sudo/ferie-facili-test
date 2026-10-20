@@ -100,4 +100,51 @@ refreshAdmin=async function(){
  for(const a of data||[]){const row=node('div',null,'doc-row'),actor=people.find(p=>p.id===a.actor_id);row.append(node('strong',labels[a.action]||a.action),node('small',`${dateLabel(a.created_at)} · ${actor?.full_name||'Configurazione'} · ${a.target_id||''}`));log.append(row)}
  if(!log.childNodes.length)log.textContent='Nessuna operazione registrata.';
 };
+
+/* Drive TEST: all OAuth secrets and Google tokens stay in the backend. */
+let drivePanel;
+async function driveCall(action,extra={}){
+ const {data,error}=await authClient.auth.getSession();if(error)throw error;
+ if(!data.session)throw new Error('Accedi nuovamente.');
+ const response=await fetch(SUPABASE_URL+'/functions/v1/drive-archive',{
+  method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_ANON_KEY,'Authorization':'Bearer '+data.session.access_token},
+  body:JSON.stringify({action,...extra})
+ });
+ const result=await response.json();if(!response.ok)throw new Error(result.error||'Archivio Drive non disponibile.');
+ return result;
+}
+async function refreshDrive(){
+ if(profile?.role!=='admin'||!profile.active)return;
+ if(!drivePanel){drivePanel=node('section');drivePanel.style.cssText='padding:18px;margin:16px 0;border:1px solid #ddd;border-radius:16px';$('adminArea').prepend(drivePanel);}
+ drivePanel.replaceChildren(node('h3','Archivio Google Drive · TEST'));
+ const summary=node('p','Verifica del collegamento…'),controls=node('div',null,'doc-toolbar'),list=node('div');drivePanel.append(summary,controls,list);
+ try{
+  const result=await driveCall('status');
+  summary.textContent=!result.configured?'Configurazione OAuth da completare nel backend.':!result.connection?'Google Drive non ancora collegato.':'Google Drive collegato. Controlla lo stato di ogni documento.';
+  if(!result.connection){
+   controls.append(button('Collega Google Drive',async()=>{
+    try{const r=await driveCall('connect');location.assign(r.url)}catch(e){err(e)}
+   }));
+  }
+  controls.append(button('Aggiorna stato',()=>refreshDrive(),true));
+  if(result.connection)controls.append(button('Elabora prossimo documento',async()=>{
+   try{const r=await driveCall('process');msg(r.archived?'Documento archiviato e riletto correttamente da Drive.':r.error||r.reason||'Nessun documento in attesa.');await refreshDrive()}catch(e){err(e)}
+  },true));
+  if(!result.configured){const help=node('p','Callback da registrare nel client OAuth Google: '+result.callback);drivePanel.append(help);}
+  const labels={pending:'In coda',processing:'Archiviazione in corso',retry:'Ritentativo programmato',archived:'Archiviato e verificato',failed:'Errore: intervento richiesto'};
+  for(const j of result.jobs||[]){
+   const row=node('div',null,'doc-row'),d=docs.find(x=>x.id===j.document_id),left=node('div');
+   left.append(node('strong',d?d.file_name:j.document_id),node('small',(labels[j.status]||j.status)+' · Tentativi: '+j.attempts));
+   if(j.last_error)left.append(node('small',j.last_error));
+   row.append(left);
+   if(j.status==='retry'||j.status==='failed')row.append(button('Riprova',async()=>{try{await driveCall('retry',{document_id:j.document_id});await refreshDrive()}catch(e){err(e)}},true));
+   list.append(row);
+  }
+  if(!result.jobs?.length)list.textContent='Nessun documento in archivio. Per le prove usa esclusivamente documenti fittizi.';
+  if((result.jobs||[]).length===200)list.append(node('small','Visualizzati i 200 caricamenti più recenti.'));
+ }catch(e){summary.textContent='Impossibile aggiornare l’archivio: '+e.message;}
+}
+const refreshAdminWithUsers=refreshAdmin;
+refreshAdmin=async function(){await refreshAdminWithUsers();await refreshDrive();};
+
 boot().catch(err);
