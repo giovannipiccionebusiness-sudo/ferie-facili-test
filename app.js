@@ -8,9 +8,10 @@ const dateLabel=s=>new Date(s).toLocaleString('it-IT');
 const typeLabel={presenze:'Foglio presenze',ferie:'Ferie',rol:'ROL',legge104:'Legge 104',malattia:'Malattia'};
 const stageLabel={weekly:'Aggiornamento settimanale',replacement:'Sostituzione settimanale',final:'Definitivo mensile',request:'Modulo firmato'};
 const statusLabel={pending:'In verifica',verified:'Documento verificato',rejected:'Documento respinto'};
-const monthNow=()=>new Date().toLocaleDateString('en-CA').slice(0,7);
+const isoLocalDate=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const monthNow=()=>isoLocalDate(new Date()).slice(0,7);
 $('month').value=monthNow();$('adminMonth').value=monthNow();
-const today=new Date(), friday=new Date(today);friday.setDate(today.getDate()+((5-today.getDay()+7)%7));$('weekDate').value=friday.toLocaleDateString('en-CA');$('workerWeek').value=$('weekDate').value;
+const today=new Date(), friday=new Date(today);friday.setDate(today.getDate()+((5-today.getDay()+7)%7));$('weekDate').value=isoLocalDate(friday);$('workerWeek').value=$('weekDate').value;
 function msg(t){$('appMsg').textContent=t}
 function err(e){msg(e?.message||String(e))}
 function node(tag,text,cls){const el=document.createElement(tag);if(text!=null)el.textContent=text;if(cls)el.className=cls;return el}
@@ -40,18 +41,56 @@ $('loginBtn').onclick=async()=>{
 $('signupBtn').onclick=async()=>{const email=$('email').value.trim(),password=$('password').value;if(!email||password.length<8){msg('Inserisci email e password di almeno 8 caratteri.');return}const full_name=prompt('Inserisci nome e cognome completi:');if(!full_name?.trim())return;const {error}=await authClient.auth.signUp({email,password,options:{data:{full_name:full_name.trim()}}});if(error)err(error);else msg('Registrazione richiesta. Controlla la tua email per confermarla, poi attendi l’abilitazione.')};
 $('logoutBtn').onclick=()=>authClient.auth.signOut();
 $('month').onchange=refreshWorker;
-let action='weekly';function pick(a){action=a;if(!profile?.active)return;const m=$('month').value;if(a==='final'&&m>=monthNow()){if(!confirm('Il mese selezionato è ancora in corso. Il foglio definitivo deve comprendere tutti i giorni del mese. Continuare?'))return}if(a==='final'&&!confirm('Confermi che il foglio è completo per TUTTO il mese e firmato a mano?'))return;$('docPicker').value='';$('docPicker').click()}
-$('updateSheet').onclick=()=>pick('weekly');$('replaceSheet').onclick=()=>pick('replacement');$('finalSheet').onclick=()=>pick('final');$('uploadOther').onclick=()=>pick('request');
-function weekEnding(){const d=new Date(),f=new Date(d);f.setDate(d.getDate()+((5-d.getDay()+7)%7));return f.toLocaleDateString('en-CA')}
-$('docPicker').onchange=async()=>{const file=$('docPicker').files?.[0];if(!file)return;const allowed=['image/jpeg','image/png','image/webp','application/pdf'];if(!allowed.includes(file.type)||file.size>12*1024*1024){msg('Sono accettati JPEG, PNG, WebP e PDF fino a 12 MB.');return}
- const month=$('month').value,category=action==='request'?$('docType').value:'presenze',week=action==='weekly'||action==='replacement'?$('workerWeek').value:null;
- if(week&&(!/^\d{4}-\d{2}-\d{2}$/.test(week)||new Date(week+'T12:00:00').getDay()!==5||week.slice(0,7)!==month)){msg('Scegli un venerdì nel mese selezionato.');return}
+
+let selectedUpload=null,uploading=false;
+const uploadButtons=['updateSheet','replaceSheet','finalSheet','uploadOther'];
+function validateUploadSelection(a){
+ if(!profile?.active||profile.role!=='worker')throw new Error('Accedi con un account lavoratore abilitato.');
+ const month=$('month').value;
+ if(!/^20\d{2}-(0[1-9]|1[0-2])$/.test(month))throw new Error('Seleziona il mese di riferimento.');
+ const weekly=['weekly','replacement'].includes(a),week=weekly?$('workerWeek').value:null;
+ if(weekly&&(!week||!/^\d{4}-\d{2}-\d{2}$/.test(week)||new Date(week+'T12:00:00').getDay()!==5||week.slice(0,7)!==month)){
+  $('workerWeek').focus();throw new Error('Seleziona il venerdì della settimana, nello stesso mese del foglio.');
+ }
  const recent=docs.filter(d=>d.category==='presenze'&&['weekly','replacement'].includes(d.stage)&&d.week_ending===week).sort((a,b)=>b.created_at.localeCompare(a.created_at));
- if(action==='replacement'&&!recent.length){msg('Nessun foglio della settimana selezionata da sostituire. Usa Aggiorna foglio presenze.');return}
- const id=crypto.randomUUID(),ext=file.type==='application/pdf'?'pdf':file.type.split('/')[1],path=`${session.user.id}/${month}/${id}.${ext}`;
- msg('Caricamento in corso…');const {error:uploadError}=await sb.storage.from('private-documents').upload(path,file,{contentType:file.type,upsert:false});if(uploadError){err(uploadError);return}
- const payload={id,worker_id:session.user.id,site:profile.site,month,category,stage:action,week_ending:week,replaces:action==='replacement'?recent[0].id:null,file_path:path,file_name:file.name,note:action==='request'?$('docNote').value.trim():'',authorization:['ferie','rol'].includes(category)?'pending':'not_applicable'};
- const {error}=await sb.from('documents').insert(payload);if(error){await sb.storage.from('private-documents').remove([path]);err(error);return}msg('Documento inviato correttamente. In attesa di verifica del responsabile.');await refreshWorker()};
+ if(a==='replacement'&&!recent.length)throw new Error('Nessun foglio per questa settimana da sostituire. Usa Aggiorna foglio presenze.');
+ return Object.freeze({stage:a,month,week,category:a==='request'?$('docType').value:'presenze',replaces:a==='replacement'?recent[0].id:null,note:a==='request'?$('docNote').value.trim():'',worker_id:session.user.id,site:profile.site});
+}
+function pick(a){
+ if(uploading)return;
+ try{
+  const selected=validateUploadSelection(a);
+  if(a==='final'&&selected.month>=monthNow()&&!confirm('Il mese selezionato è ancora in corso. Il foglio definitivo deve comprendere tutti i giorni del mese. Continuare?'))return;
+  if(a==='final'&&!confirm('Confermi che il foglio è completo per TUTTO il mese e firmato a mano?'))return;
+  selectedUpload=selected;$('docPicker').value='';$('docPicker').click();
+ }catch(e){err(e);$('appMsg').scrollIntoView({behavior:'smooth',block:'center'});}
+}
+$('updateSheet').onclick=()=>pick('weekly');$('replaceSheet').onclick=()=>pick('replacement');$('finalSheet').onclick=()=>pick('final');$('uploadOther').onclick=()=>pick('request');
+function weekEnding(){const d=new Date(),f=new Date(d);f.setDate(d.getDate()+((5-d.getDay()+7)%7));return isoLocalDate(f);}
+$('docPicker').onchange=async()=>{
+ const file=$('docPicker').files?.[0],selected=selectedUpload;
+ if(!file||!selected||uploading)return;
+ selectedUpload=null;
+ const allowed=['image/jpeg','image/png','image/webp','application/pdf'];
+ if(!allowed.includes(file.type)||file.size>12*1024*1024){err(new Error('Sono accettati JPEG, PNG, WebP e PDF fino a 12 MB.'));$('appMsg').scrollIntoView({behavior:'smooth',block:'center'});return;}
+ if(session?.user?.id!==selected.worker_id||!profile?.active){err(new Error('Account cambiato: seleziona nuovamente il documento.'));return;}
+ uploading=true;uploadButtons.forEach(id=>$(id).disabled=true);
+ try{
+  const id=crypto.randomUUID(),ext=file.type==='application/pdf'?'pdf':file.type.split('/')[1],path=selected.worker_id+'/'+selected.month+'/'+id+'.'+ext;
+  msg('Caricamento in corso…');
+  const {error:uploadError}=await sb.storage.from('private-documents').upload(path,file,{contentType:file.type,upsert:false});
+  if(uploadError)throw uploadError;
+  const payload={id,worker_id:selected.worker_id,site:selected.site,month:selected.month,category:selected.category,stage:selected.stage,week_ending:selected.week,replaces:selected.replaces,file_path:path,file_name:file.name,note:selected.note,authorization:['ferie','rol'].includes(selected.category)?'pending':'not_applicable'};
+  const {error}=await sb.from('documents').insert(payload);
+  if(error){
+   await sb.storage.from('private-documents').remove([path]);
+   if(error.message?.includes('week_for_weekly'))throw new Error('La settimana non è coerente con il tipo di invio. Aggiorna la pagina e seleziona nuovamente il venerdì.');
+   throw error;
+  }
+  msg('Documento inviato correttamente. In attesa di verifica del responsabile.');await refreshWorker();
+ }catch(e){err(e);$('appMsg').scrollIntoView({behavior:'smooth',block:'center'});}
+ finally{uploading=false;uploadButtons.forEach(id=>$(id).disabled=false);}
+};
 async function openFile(d){const {data,error}=await sb.storage.from('private-documents').createSignedUrl(d.file_path,90);if(error){err(error);return}const link=node('a','Apri il documento (link valido 90 secondi)');link.href=data.signedUrl;link.target='_blank';link.rel='noopener noreferrer';$('appMsg').replaceChildren(link)}
 async function refreshWorker(){if(!profile?.active||profile.role==='admin')return;const {data,error}=await sb.from('documents').select('*').eq('worker_id',session.user.id).eq('month',$('month').value).order('created_at',{ascending:false});if(error){err(error);return}docs=data||[];const area=$('docList');area.replaceChildren();if(!docs.length)area.textContent='Nessun documento per questo mese.';
  for(const d of docs){const row=node('div',null,'doc-row'),left=node('div');left.append(node('strong',`${typeLabel[d.category]} · ${stageLabel[d.stage]}`),node('small',`${dateLabel(d.created_at)} · ${statusLabel[d.review_status]}`));if(d.review_reason)left.append(node('small','Motivo: '+d.review_reason));if(d.authorization==='approved')left.append(node('small','Richiesta autorizzata'));if(d.authorization==='denied')left.append(node('small','Richiesta non autorizzata'));row.append(left,button('Apri',()=>openFile(d),true));area.append(row)}
@@ -64,7 +103,7 @@ async function refreshAdmin(){if(profile?.role!=='admin')return;const [p,d]=awai
 async function addNotification(worker_id,kind,message,week_ending=null){return sb.from('notifications').insert({worker_id,kind,message,week_ending,created_by:session.user.id})}
 async function review(d,status){let reason=null;if(status==='rejected'){reason=prompt('Motivo del rifiuto (obbligatorio):');if(!reason?.trim())return}else if(!confirm('Confermi la verifica del documento?'))return;const {error}=await sb.from('documents').update({review_status:status,review_reason:reason,reviewed_by:session.user.id,reviewed_at:new Date().toISOString()}).eq('id',d.id);if(error){err(error);return}const r=await addNotification(d.worker_id,'review',status==='verified'?'Il tuo documento è stato verificato.':'Documento respinto: '+reason);if(r.error)err(r.error);await refreshAdmin()}
 async function authorize(d,status){if(!confirm(status==='approved'?'Autorizzare la richiesta?':'Non autorizzare la richiesta?'))return;const {error}=await sb.from('documents').update({authorization:status,authorized_at:new Date().toISOString()}).eq('id',d.id);if(error){err(error);return}const r=await addNotification(d.worker_id,'authorization',status==='approved'?'La tua richiesta è stata autorizzata.':'La tua richiesta non è stata autorizzata.');if(r.error)err(r.error);await refreshAdmin()}
-$('findMissing').onclick=async()=>{const week=$('weekDate').value,site=$('adminSite').value;if(!week){msg('Seleziona un venerdì.');return}if(new Date(week+'T12:00:00').getDay()!==5){msg('Seleziona una data che sia venerdì.');return}const first=new Date(week+'T12:00:00');first.setDate(first.getDate()-6);const start=first.toLocaleDateString('en-CA');const {data,error}=await sb.from('documents').select('worker_id,week_ending,created_at,stage,review_status').in('stage',['weekly','replacement']).eq('week_ending',week);if(error){err(error);return}const delivered=new Set((data||[]).filter(x=>x.review_status!=='rejected').map(x=>x.worker_id));missing=people.filter(p=>p.active&&p.role==='worker'&&p.site&&(!site||p.site===site)&&!delivered.has(p.id));const area=$('missingList');area.replaceChildren();if(!missing.length){area.textContent='Tutti hanno consegnato per la settimana selezionata.';return}for(const p of missing){const row=node('label',null,'doc-row'),cb=document.createElement('input');cb.type='checkbox';cb.checked=true;cb.style.width='auto';cb.dataset.uid=p.id;row.append(cb,node('span',`${p.full_name} · ${p.site}`));area.append(row)}msg(`${missing.length} lavoratori senza consegna per il venerdì selezionato.`)};
+$('findMissing').onclick=async()=>{const week=$('weekDate').value,site=$('adminSite').value;if(!week){msg('Seleziona un venerdì.');return}if(new Date(week+'T12:00:00').getDay()!==5){msg('Seleziona una data che sia venerdì.');return}const first=new Date(week+'T12:00:00');first.setDate(first.getDate()-6);const start=isoLocalDate(first);const {data,error}=await sb.from('documents').select('worker_id,week_ending,created_at,stage,review_status').in('stage',['weekly','replacement']).eq('week_ending',week);if(error){err(error);return}const delivered=new Set((data||[]).filter(x=>x.review_status!=='rejected').map(x=>x.worker_id));missing=people.filter(p=>p.active&&p.role==='worker'&&p.site&&(!site||p.site===site)&&!delivered.has(p.id));const area=$('missingList');area.replaceChildren();if(!missing.length){area.textContent='Tutti hanno consegnato per la settimana selezionata.';return}for(const p of missing){const row=node('label',null,'doc-row'),cb=document.createElement('input');cb.type='checkbox';cb.checked=true;cb.style.width='auto';cb.dataset.uid=p.id;row.append(cb,node('span',`${p.full_name} · ${p.site}`));area.append(row)}msg(`${missing.length} lavoratori senza consegna per il venerdì selezionato.`)};
 function selectedMissing(){return missing.filter(p=>document.querySelector(`#missingList input[data-uid="${p.id}"]`)?.checked)}
 $('sendReminders').onclick=async()=>{const sel=selectedMissing(),week=$('weekDate').value;if(!sel.length){msg('Nessun lavoratore selezionato.');return}if(!confirm(`Inviare ${sel.length} solleciti nell'app?`))return;let sent=0,duplicates=0;for(const p of sel){const r=await addNotification(p.id,'reminder',`Non risulta consegnato il foglio presenze della settimana con venerdì ${week}. Carica il foglio cartaceo compilato e firmato.`,week);if(r.error){if(r.error.code==='23505')duplicates++;else err(r.error)}else sent++}msg(`${sent} notifiche nell'app registrate; ${duplicates} solleciti già presenti.`)};
 $('whatsappReminders').onclick=()=>{const sel=selectedMissing();if(!sel.length){msg('Nessun lavoratore selezionato.');return}const without=sel.filter(x=>!x.phone);if(without.length){msg('Numeri WhatsApp mancanti per: '+without.map(x=>x.full_name).join(', ')+'. Inseriscili in Supabase nella tabella profiles, colonna phone.');return}if(!confirm(`Aprire WhatsApp per ${sel.length} lavoratori? Dovrai premere Invia in ogni conversazione.`))return;for(const p of sel){const phone=p.phone.replace(/[^0-9]/g,'');const t=`Buongiorno ${p.full_name}, non risulta ancora caricato il foglio presenze settimanale compilato e firmato. Ti invito a provvedere tramite Ferie Facili. Grazie.`;window.open(`https://wa.me/${phone}?text=${encodeURIComponent(t)}`,'_blank','noopener,noreferrer')}msg('WhatsApp aperto: l’invio effettivo deve essere confermato manualmente. Il browser potrebbe bloccare più schede.')};
