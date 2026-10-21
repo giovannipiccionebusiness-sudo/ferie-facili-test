@@ -81,7 +81,7 @@ async function processMonthly(id:string|null=null){
   const stored=await db.storage.from('document-scans-test').download(scan.file_path);if(stored.error||!stored.data)throw Error('Scanned source unavailable');
   const bytes=await stored.data.arrayBuffer();if(bytes.byteLength>12582912)throw Error('Scan too large');const hash=await digest(bytes);
   let scanId=job.google_scan_id;
-  if(!scanId){scanId=await allocated(access);must(await db.from('test_monthly_closures').update({google_scan_id:scanId}).eq('document_id',d.id).eq('lease_id',lease));}
+  if(!scanId){scanId=await allocated(access);const allocatedRow=must(await db.from('test_monthly_closures').update({google_scan_id:scanId}).eq('document_id',d.id).eq('lease_id',lease).select('google_scan_id').single()) as any;scanId=allocatedRow.google_scan_id;}
   let sm=await metadata(access,scanId);
   if(!sm){const boundary='ff_'+crypto.randomUUID();const meta={id:scanId,name:d.id+'_PRESENZE_MENSILI_SCANSIONE.'+(stored.data.type==='application/pdf'?'pdf':'jpg'),parents:[om.parents[0]],appProperties:{documentId:d.id,sha256:hash,variant:'monthly_scan'}};
    const body=new Blob(['--'+boundary+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n',JSON.stringify(meta),'\r\n--'+boundary+'\r\nContent-Type: '+stored.data.type+'\r\n\r\n',bytes,'\r\n--'+boundary+'--']);
