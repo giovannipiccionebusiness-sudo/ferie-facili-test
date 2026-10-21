@@ -78,7 +78,7 @@ $('loginBtn').onclick=async()=>{
  }catch(e){err(e)}finally{b.disabled=false;b.textContent='Accedi'}
 };
 $('signupBtn').onclick=async()=>{const email=$('email').value.trim(),password=$('password').value;if(!email||password.length<8){msg('Inserisci email e password di almeno 8 caratteri.');return}const full_name=prompt('Inserisci nome e cognome completi:');if(!full_name?.trim())return;const {error}=await authClient.auth.signUp({email,password,options:{data:{full_name:full_name.trim()}}});if(error)err(error);else msg('Registrazione richiesta. Controlla la tua email per confermarla, poi attendi l’abilitazione.')};
-$('logoutBtn').onclick=async()=>{if(uploading){msg('Attendi la fine del caricamento prima di uscire.');return;}clearCameraSelection();uploadStatusPanel?.remove();uploadStatusPanel=null;uploadBar=null;uploadStatusText=null;if(session?.user?.id)await deleteUploadDraft(session.user.id).catch(()=>{});pendingDraft=null;recoveryPanel?.remove();recoveryPanel=null;await authClient.auth.signOut();};
+$('logoutBtn').onclick=async()=>{if(uploading){msg('Attendi la fine del caricamento prima di uscire.');return;}clearCameraSelection();clearCameraRetry();uploadStatusPanel?.remove();uploadStatusPanel=null;uploadBar=null;uploadStatusText=null;if(session?.user?.id)await deleteUploadDraft(session.user.id).catch(()=>{});pendingDraft=null;recoveryPanel?.remove();recoveryPanel=null;await authClient.auth.signOut();};
 $('month').onchange=refreshWorker;
 
 let selectedUpload=null,uploading=false;
@@ -93,6 +93,39 @@ function readCameraSelection(worker){
   return stored.selection;
  }catch{return null;}
 }
+
+let cameraRetryPanel=null,cameraReturnTimer=null;
+function clearCameraRetry(){
+ if(cameraReturnTimer!==null){clearTimeout(cameraReturnTimer);cameraReturnTimer=null;}
+ cameraRetryPanel?.remove();cameraRetryPanel=null;
+}
+function showCameraRetry(selection){
+ if(!selection||uploading||pendingDraft||!profile?.active||selection.worker_id!==session?.user?.id)return;
+ clearCameraRetry();showDocuments();
+ uploadStatusPanel?.remove();uploadStatusPanel=null;uploadBar=null;uploadStatusText=null;
+ cameraRetryPanel=node('section',null,'card');
+ cameraRetryPanel.style.cssText='border:2px solid #b54708;background:#fff8ed;padding:20px;position:sticky;top:8px;z-index:21';
+ cameraRetryPanel.setAttribute('role','alert');
+ cameraRetryPanel.append(node('h3','Caricamento non completato'),node('p','La foto non è arrivata all’app e non è stata inviata. Riprova. Se succede ancora, scatta la foto con la Fotocamera del telefono e poi selezionala dalla Galleria.'));
+ cameraRetryPanel.append(button('Riprova caricamento',()=>pick(selection.stage)),button('Chiudi avviso',()=>{clearCameraRetry();clearCameraSelection();selectedUpload=null;},true));
+ $('workerArea').prepend(cameraRetryPanel);
+ cameraRetryPanel.scrollIntoView({behavior:'smooth',block:'start'});
+}
+function checkCameraReturn(){
+ if(document.visibilityState==='hidden'||!session?.user?.id||uploading||pendingDraft)return;
+ const saved=readCameraSelection(session.user.id);
+ if(!saved)return;
+ if(cameraReturnTimer!==null)clearTimeout(cameraReturnTimer);
+ // Give the system picker time to dispatch its change event before declaring that no file arrived.
+ cameraReturnTimer=setTimeout(()=>{
+  cameraReturnTimer=null;
+  if(!uploading&&!pendingDraft&&!$('docPicker').files?.length)showCameraRetry(saved);
+ },2000);
+}
+window.addEventListener('focus',checkCameraReturn);
+document.addEventListener('visibilitychange',checkCameraReturn);
+$('docPicker').addEventListener('cancel',checkCameraReturn);
+
 function showDocuments(){
  $('docsApp').classList.remove('hidden');$('calcApp').classList.add('hidden');
  $('tabDocs').classList.add('active');$('tabCalc').classList.remove('active');
@@ -120,7 +153,7 @@ async function restoreUploadState(){
  await refreshWorker();
  if(saved&&!pendingDraft){
   try{selectedUpload=validateUploadSelection(saved.stage);}catch{selectedUpload=null;}
-  showDocuments();msg('Se la fotocamera ha ricaricato la pagina, scegli la foto dalla galleria. Mese e settimana sono stati recuperati.');
+  showCameraRetry(saved);
  }
  if(pendingDraft){showDocuments();renderUploadRecovery();}
 }
@@ -144,7 +177,7 @@ function pick(a){
   const selected=validateUploadSelection(a);
   if(a==='final'&&selected.month>=monthNow()&&!confirm('Il mese selezionato è ancora in corso. Il foglio definitivo deve comprendere tutti i giorni del mese. Continuare?'))return;
   if(a==='final'&&!confirm('Confermi che il foglio è completo per TUTTO il mese e firmato a mano?'))return;
-  selectedUpload=selected;rememberCameraSelection(selected);showDocuments();$('docPicker').value='';$('docPicker').click();
+  clearCameraRetry();selectedUpload=selected;rememberCameraSelection(selected);showDocuments();$('docPicker').value='';$('docPicker').click();
  }catch(e){err(e);$('appMsg').scrollIntoView({behavior:'smooth',block:'center'});}
 }
 $('updateSheet').onclick=()=>pick('weekly');$('replaceSheet').onclick=()=>pick('replacement');$('finalSheet').onclick=()=>pick('final');$('uploadOther').onclick=()=>pick('request');
@@ -152,7 +185,8 @@ function weekEnding(){const d=new Date(),f=new Date(d);f.setDate(d.getDate()+((5
 
 $('docPicker').onchange=async()=>{
  // Capture the browser's File immediately, even when Auth is still restoring after a reload.
- const file=$('docPicker').files?.[0];if(!file)return;
+ const file=$('docPicker').files?.[0];if(!file){checkCameraReturn();return;}
+ clearCameraRetry();
  await appReady;
  const selected=selectedUpload;
  if(!selected||uploading)return;
