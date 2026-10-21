@@ -1,4 +1,4 @@
-# Scansione automatica nell’archivio — solo TEST (v15)
+# Scansione automatica nell’archivio — solo TEST (v16)
 
 ## Lavoratore
 
@@ -29,3 +29,11 @@ L’editor interattivo v14 non è più collegato al caricamento. Le eventuali sc
 - `tests/scan-security.sql`: amministratore legge/scrive la copia, lavoratore bloccato su tabella e Storage, originale invariato; fixture di lavoratore/documento/oggetti annullate con ROLLBACK. Il test usa il contesto di autorizzazione admin esistente senza modificarlo: esiste un vincolo di amministratore unico.
 - Advisors: nessuna nuova segnalazione di sicurezza; restano le segnalazioni preesistenti sulle tabelle Drive intenzionalmente chiuse e sulla protezione password compromesse.
 - Nessun documento reale letto, elaborato o caricato durante le prove. Il collaudo su dispositivo fisico e il trasferimento HTTP effettivo della derivata richiedono una prova con foglio fittizio nell’app TEST.
+
+## Correzione v16
+
+Rilevamento basato su neutralità del colore e soglia adattiva, anziché luminosità fissa. Chiusura dei piccoli vuoti da righe/pieghe e verifica geometrica del candidato. I fogli con angoli sul bordo della foto non sono più scartati automaticamente. Gli originali restano invariati. La colonna algorithm_version distingue le derivate v1: vengono rielaborate automaticamente con algoritmo 2 quando aperte nell’archivio.
+
+Regressione verificata localmente anche sul ritaglio della foto del libro visibile nello screenshot fornito dall’utente, senza caricarlo nel backend. Rimossi tavolo e sfondo esterni principali; non si può recuperare un bordo non presente nello scatto. Aggiunta regressione sintetica per carta in ombra su legno caldo con angoli a filo foto.
+
+La patch incrementale `scan-detector-v2.sql` è già applicata. Le nuove derivate usano auto-v2.jpg, così il browser non riutilizza la precedente immagine dalla cache.

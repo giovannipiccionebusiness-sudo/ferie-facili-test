@@ -11,10 +11,10 @@ set local role authenticated;
 do $$ begin perform set_config('request.jwt.claims',json_build_object('sub',current_setting('test.admin_id'),'role','authenticated')::text,true); end $$;
 do $$ declare d uuid:=current_setting('test.document_id')::uuid; s text:=current_setting('test.worker_id')||'/2026-10/'||current_setting('test.document_id')||'.jpeg'; begin
  if not private.is_admin() then raise exception 'FAIL admin fixture';end if;
- insert into storage.objects(bucket_id,name) values('document-scans-test',d::text||'/auto-v1.jpg');
- insert into public.test_document_scans(document_id,source_path,file_path,cropped) values(d,s,d::text||'/auto-v1.jpg',true);
- update public.test_document_scans set cropped=false where document_id=d;
- if not exists(select 1 from public.test_document_scans where document_id=d and not cropped) then raise exception 'FAIL admin read/update';end if;
+ insert into storage.objects(bucket_id,name) values('document-scans-test',d::text||'/auto-v2.jpg');
+ insert into public.test_document_scans(document_id,source_path,file_path,cropped) values(d,s,d::text||'/auto-v2.jpg',true);
+ update public.test_document_scans set cropped=false,algorithm_version=2 where document_id=d;
+ if not exists(select 1 from public.test_document_scans where document_id=d and not cropped and algorithm_version=2) then raise exception 'FAIL admin read/update';end if;
  if not exists(select 1 from public.documents where id=d and file_path=s) then raise exception 'FAIL original changed';end if;
 end $$;
 do $$ begin perform set_config('request.jwt.claims',json_build_object('sub',current_setting('test.worker_id'),'role','authenticated')::text,true); end $$;

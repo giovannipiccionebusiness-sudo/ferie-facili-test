@@ -1,4 +1,4 @@
-import {detectPaper,warpImage} from './scanner-core.js?v=15';
+import {detectPaper,warpImage} from './scanner-core.js?v=16';
 // Colour-preserving deterministic processing. No generated text or OCR.
 export async function autoScanPhoto(blob){
  let image;const url=URL.createObjectURL(blob);
@@ -6,8 +6,9 @@ export async function autoScanPhoto(blob){
   const src=document.createElement('canvas'),scale=Math.min(1,1800/Math.max(image.width,image.height));src.width=Math.round(image.width*scale);src.height=Math.round(image.height*scale);const ctx=src.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,src.width,src.height);ctx.drawImage(image,0,0,src.width,src.height);
   const small=document.createElement('canvas');small.width=320;small.height=Math.max(1,Math.round(src.height/src.width*320));small.getContext('2d').drawImage(src,0,0,small.width,small.height);const found=detectPaper(small.getContext('2d').getImageData(0,0,small.width,small.height));
   const points=found.points.map(p=>({x:p.x/small.width*src.width,y:p.y/small.height*src.height}));
-  // Conservative guard: an ambiguous candidate touching the frame is never cropped.
-  const cropped=found.detected&&points.every(p=>p.x>src.width*.012&&p.x<src.width*.988&&p.y>src.height*.012&&p.y<src.height*.988);
+  // A page may touch one or more photo edges. The detector validates the shape;
+  // do not reject it solely because a corner lies on the image border.
+  const cropped=found.detected;
   const side=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y),landscape=cropped?(side(points[0],points[1])+side(points[2],points[3]))>(side(points[0],points[3])+side(points[1],points[2])):src.width>src.height;
   const page=document.createElement('canvas');page.width=landscape?1800:1273;page.height=landscape?1273:1800;const out=page.getContext('2d');out.fillStyle='white';out.fillRect(0,0,page.width,page.height);
   if(cropped){const pixels=warpImage(ctx.getImageData(0,0,src.width,src.height),points,page.width,page.height,false);out.putImageData(new ImageData(pixels.data,page.width,page.height),0,0);}
@@ -31,12 +32,12 @@ export function createAutoArchiveScanner({client,allowed,openOriginal}){
    if(!current())return null;
    const db=client();const r=await db.from('test_document_scans').select('*').eq('document_id',d.id).maybeSingle();if(r.error)throw r.error;
    if(!current())return null;
-   let row=r.data?.source_path===d.file_path?r.data:null,blob;
+   let row=r.data?.source_path===d.file_path&&r.data.algorithm_version===2?r.data:null,blob;
    if(row){const saved=await db.storage.from('document-scans-test').download(row.file_path);if(!saved.error)blob=saved.data;}
    if(!blob){state.textContent='Ritaglio e miglioramento automatici in corso…';const src=await db.storage.from('private-documents').download(d.file_path);if(src.error)throw src.error;if(!current())return null;
     const result=await autoScanPhoto(src.data);if(!current())return null;blob=result.file;
-    const path=d.id+'/auto-v1.jpg',upload=await db.storage.from('document-scans-test').upload(path,blob,{contentType:'image/jpeg',upsert:true});if(upload.error)throw upload.error;if(!current())return null;
-    row={document_id:d.id,source_path:d.file_path,file_path:path,cropped:result.cropped};const save=await db.from('test_document_scans').upsert(row,{onConflict:'document_id'});if(save.error)throw save.error;
+    const path=d.id+'/auto-v2.jpg',upload=await db.storage.from('document-scans-test').upload(path,blob,{contentType:'image/jpeg',upsert:true});if(upload.error)throw upload.error;if(!current())return null;
+    row={document_id:d.id,source_path:d.file_path,file_path:path,cropped:result.cropped,algorithm_version:2};const save=await db.from('test_document_scans').upsert(row,{onConflict:'document_id'});if(save.error)throw save.error;
    }
    if(!current())return null;const url=URL.createObjectURL(blob);urls.add(url);return {url,cropped:row.cropped};
   }
