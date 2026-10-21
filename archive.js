@@ -1,5 +1,5 @@
 // Private, read-only worker archive. Supabase RLS remains authoritative.
-export function createWorkerArchive({client,allowed,openFile,typeLabel,stageLabel,statusLabel,renderScan=()=>{},onReset=()=>{}}){
+export function createWorkerArchive({client,allowed,openFile,typeLabel,stageLabel,statusLabel,renderScan=()=>{},onReset=()=>{},reviewDocument=()=>{}}){
  const $=id=>document.getElementById(id),pageSize=20;
  let workers=[],selected='',page=0,version=0,loaded=false;
  const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(cls)n.className=cls;return n;};
@@ -49,6 +49,7 @@ export function createWorkerArchive({client,allowed,openFile,typeLabel,stageLabe
     if(d.review_reason)info.append(el('small','Motivo: '+d.review_reason));
     const details=el('details',null,'file-details');details.append(el('summary','Dettagli file'),el('small',d.file_name||'Documento'));info.append(details);
     const b=action('Apri documento',()=>{if(allowed())openFile(d);});b.setAttribute('aria-label','Apri '+(typeLabel[d.category]||'documento')+' del '+new Date(d.created_at).toLocaleDateString('it-IT'));
+    if(d.review_status==='pending'){const controls=el('div',null,'doc-toolbar');controls.append(action('Verifica',()=>reviewDocument(d,'verified')),action('Respingi',()=>reviewDocument(d,'rejected')));info.append(controls);}
     row.append(info);area.append(row);renderScan(d,info);
    }
    if(page>0)pager.append(action('← Precedenti',()=>{page--;load();}));
@@ -63,5 +64,6 @@ export function createWorkerArchive({client,allowed,openFile,typeLabel,stageLabe
  $('archiveAllMonths').onclick=()=>{$('archiveMonth').value='';page=0;load();};
  $('archiveRefresh').onclick=()=>load();
  for(const [id,mode] of [['showArchive','archive'],['showOperations','operations']])$(id).onclick=()=>{if(!allowed())return;$('workerArchive').classList.toggle('hidden',mode!=='archive');$('adminOperations').classList.toggle('hidden',mode!=='operations');$('showArchive').setAttribute('aria-pressed',String(mode==='archive'));$('showOperations').setAttribute('aria-pressed',String(mode==='operations'));if(mode==='archive')load();};
- return {clear,setWorkers(rows){if(!allowed()){clear();return;}workers=rows.filter(p=>p.role==='worker').sort((a,b)=>(a.full_name||'').localeCompare(b.full_name||'','it'));if(selected&&!workers.some(p=>p.id===selected))selected='';renderWorkers();if(!loaded){loaded=true;load();}}};
+ return {clear,setWorkers(rows){if(!allowed()){clear();return;}workers=rows.filter(p=>p.role==='worker').sort((a,b)=>(a.full_name||'').localeCompare(b.full_name||'','it'));if(selected&&!workers.some(p=>p.id===selected))selected='';renderWorkers();loaded=true;return load();}};
 }
+

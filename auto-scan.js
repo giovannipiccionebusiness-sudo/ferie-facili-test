@@ -1,10 +1,11 @@
-import {detectPaper,warpImage} from './scanner-core.js?v=17';
+import {edgePaper} from './edge-crop.js?v=18';
+import {detectPaper,warpImage} from './scanner-core.js?v=18';
 // Colour-preserving deterministic processing. No generated text or OCR.
 export async function autoScanPhoto(blob){
  let image;const url=URL.createObjectURL(blob);
  try{if(typeof createImageBitmap==='function')image=await createImageBitmap(blob,{resizeWidth:1400,resizeQuality:'high'});else{image=new Image();image.src=url;await image.decode();}
   const src=document.createElement('canvas'),scale=Math.min(1,1800/Math.max(image.width,image.height));src.width=Math.round(image.width*scale);src.height=Math.round(image.height*scale);const ctx=src.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,src.width,src.height);ctx.drawImage(image,0,0,src.width,src.height);
-  const small=document.createElement('canvas');small.width=320;small.height=Math.max(1,Math.round(src.height/src.width*320));small.getContext('2d').drawImage(src,0,0,small.width,small.height);const found=detectPaper(small.getContext('2d').getImageData(0,0,small.width,small.height));
+  const small=document.createElement('canvas');small.width=320;small.height=Math.max(1,Math.round(src.height/src.width*320));small.getContext('2d').drawImage(src,0,0,small.width,small.height);const pixelsSmall=small.getContext('2d').getImageData(0,0,small.width,small.height),edge=edgePaper(pixelsSmall);const found=edge?.sleeve?edge:detectPaper(pixelsSmall);
   const points=found.points.map(p=>({x:p.x/small.width*src.width,y:p.y/small.height*src.height}));
   // A page may touch one or more photo edges. The detector validates the shape;
   // do not reject it solely because a corner lies on the image border.
@@ -35,12 +36,12 @@ export function createAutoArchiveScanner({client,allowed,openOriginal,monthlySta
    const db=client();if(monthly){const latest=await db.from('documents').select('id').eq('worker_id',d.worker_id).eq('month',d.month).eq('category','presenze').eq('stage','final').order('created_at',{ascending:false}).order('id',{ascending:false}).limit(1);if(latest.error)throw latest.error;if(latest.data?.[0]?.id!==d.id)return {skip:true};}
    const r=await db.from('test_document_scans').select('*').eq('document_id',d.id).maybeSingle();if(r.error)throw r.error;
    if(!current())return null;
-   let row=r.data?.source_path===d.file_path&&r.data.algorithm_version===2?r.data:null,blob;
+   let row=r.data?.source_path===d.file_path&&r.data.algorithm_version===3?r.data:null,blob;
    if(row){const saved=await db.storage.from('document-scans-test').download(row.file_path);if(!saved.error)blob=saved.data;}
    if(!blob){state.textContent='Ritaglio e miglioramento automatici in corso…';const src=await db.storage.from('private-documents').download(d.file_path);if(src.error)throw src.error;if(!current())return null;
     const result=pdf?{file:src.data,cropped:false}:await autoScanPhoto(src.data);if(!current())return null;blob=result.file;
-    const path=d.id+(pdf?'/auto-v2.pdf':'/auto-v2.jpg'),upload=await db.storage.from('document-scans-test').upload(path,blob,{contentType:pdf?'application/pdf':'image/jpeg',upsert:true});if(upload.error)throw upload.error;if(!current())return null;
-    row={document_id:d.id,source_path:d.file_path,file_path:path,cropped:result.cropped,algorithm_version:2};const save=await db.from('test_document_scans').upsert(row,{onConflict:'document_id'});if(save.error)throw save.error;
+    const path=d.id+(pdf?'/auto-v3.pdf':'/auto-v3.jpg'),upload=await db.storage.from('document-scans-test').upload(path,blob,{contentType:pdf?'application/pdf':'image/jpeg',upsert:true});if(upload.error)throw upload.error;if(!current())return null;
+    row={document_id:d.id,source_path:d.file_path,file_path:path,cropped:result.cropped,algorithm_version:3};const save=await db.from('test_document_scans').upsert(row,{onConflict:'document_id'});if(save.error)throw save.error;
    }
    if(!current())return null;const url=URL.createObjectURL(blob);urls.add(url);return {url,cropped:row.cropped,pdf};
   }
@@ -60,3 +61,4 @@ export function createAutoArchiveScanner({client,allowed,openOriginal,monthlySta
  }
  return {render,clear};
 }
+

@@ -87,6 +87,14 @@ async function processMonthly(id:string|null=null){
    const body=new Blob(['--'+boundary+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n',JSON.stringify(meta),'\r\n--'+boundary+'\r\nContent-Type: '+stored.data.type+'\r\n\r\n',bytes,'\r\n--'+boundary+'--']);
    const r=await request('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',{method:'POST',headers:{Authorization:'Bearer '+access,'Content-Type':'multipart/related; boundary='+boundary},body});if(!r.ok&&r.status!==409)throw Error('Drive scan upload HTTP '+r.status);sm=await metadata(access,scanId);
   }
+  // Refresh only a scan already owned by this document in the original folder.
+  if(sm&&sm.appProperties?.documentId===d.id&&sm.appProperties?.variant==='monthly_scan'&&sm.parents?.includes(om.parents[0])&&sm.appProperties?.sha256!==hash){
+   await guard(d.id,lease);
+   const upload=await request('https://www.googleapis.com/upload/drive/v3/files/'+encodeURIComponent(scanId)+'?uploadType=media',{method:'PATCH',headers:{Authorization:'Bearer '+access,'Content-Type':stored.data.type},body:bytes});
+   if(!upload.ok)throw Error('Drive scan refresh failed');
+   await api(access,'files/'+encodeURIComponent(scanId),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({appProperties:{documentId:d.id,sha256:hash,variant:'monthly_scan'}})});
+   sm=await metadata(access,scanId);
+  }
   if(!sm||sm.appProperties?.documentId!==d.id||sm.appProperties?.variant!=='monthly_scan'||sm.appProperties?.sha256!==hash||Number(sm.size)!==bytes.byteLength||!sm.parents?.includes(om.parents[0]))throw Error('Drive scan metadata mismatch');
   await verifyBytes(access,scanId,hash);await guard(d.id,lease);
   must(await db.from('test_monthly_closures').update({original_drive_id:original.google_file_id,original_hash:original.sha256,scan_hash:hash,pair_verified_at:new Date().toISOString(),last_error:null}).eq('document_id',d.id).eq('lease_id',lease));
@@ -98,7 +106,7 @@ async function processMonthly(id:string|null=null){
    }}
    await guard(d.id,lease);
    const rm=await db.storage.from('private-documents').remove([item.path]);if(rm.error)throw Error('Weekly source deletion failed');
-   const derived=await db.storage.from('document-scans-test').remove([item.id+'/auto-v1.jpg',item.id+'/auto-v2.jpg',item.id+'/auto-v2.pdf']);if(derived.error)throw Error('Weekly derivative deletion failed');
+   const derived=await db.storage.from('document-scans-test').remove([item.id+'/auto-v1.jpg',item.id+'/auto-v2.jpg',item.id+'/auto-v2.pdf',item.id+'/auto-v3.jpg',item.id+'/auto-v3.pdf']);if(derived.error)throw Error('Weekly derivative deletion failed');
    item.done=true;processed++;must(await db.from('test_monthly_closures').update({manifest}).eq('document_id',d.id).eq('lease_id',lease));
   }
   if(manifest.every(x=>x.done)){must(await db.rpc('test_monthly_finish',{p_document:d.id,p_lease:lease}));complete=true;return {done:true,removed:manifest.length};}
@@ -127,3 +135,4 @@ Deno.serve(async(req:Request)=>{
   const closure=must(await db.from('test_monthly_closures').select('status,last_error,completed_at,pair_verified_at').eq('document_id',d.id).maybeSingle());return json({closure});
  }catch(e){const m=e instanceof Error?e.message:'Request failed';return json({error:m},m==='Unauthorized'?401:400);}
 });
+
