@@ -310,7 +310,11 @@ refreshAdmin=async function(){
  const {data,error}=await sb.from('audit_log').select('*').order('created_at',{ascending:false}).limit(100);
  const log=$('auditList');log.replaceChildren();if(error){log.textContent='Impossibile aggiornare lo storico.';return}
  const labels={upload:'Documento caricato',review:'Documento verificato / richiesta aggiornata',profile_update:'Profilo aggiornato'};
- for(const a of data||[]){const row=node('div',null,'doc-row'),actor=people.find(p=>p.id===a.actor_id);row.append(node('strong',labels[a.action]||a.action),node('small',`${dateLabel(a.created_at)} · ${actor?.full_name||'Configurazione'} · ${a.target_id||''}`));log.append(row)}
+ for(const a of data||[]){const row=node('div',null,'doc-row'),actor=people.find(p=>p.id===a.actor_id);const text=node('div'),d=docs.find(d=>d.id===a.target_id),worker=d?people.find(p=>p.id===d.worker_id):null;
+ text.append(node('strong',labels[a.action]||a.action),node('small',dateLabel(a.created_at)+' · '+(actor?.full_name||'Configurazione')));
+ if(d)text.append(node('small',(worker?.full_name||'Lavoratore')+' · '+(typeLabel[d.category]||'Documento')));
+ if(a.target_id){const details=node('details',null,'file-details');details.append(node('summary','Dettagli'),node('small','Riferimento: '+a.target_id));text.append(details);}
+ row.append(text);log.append(row)}
  if(!log.childNodes.length)log.textContent='Nessuna operazione registrata.';
 };
 
@@ -347,7 +351,10 @@ async function refreshDrive(){
   const labels={pending:'In coda',processing:'Archiviazione in corso',retry:'Ritentativo programmato',archived:'Archiviato e verificato',failed:'Errore: intervento richiesto'};
   for(const j of result.jobs||[]){
    const row=node('div',null,'doc-row'),d=docs.find(x=>x.id===j.document_id),left=node('div');
-   left.append(node('strong',d?d.file_name:j.document_id),node('small',(labels[j.status]||j.status)+' · Tentativi: '+j.attempts));
+   const worker=d?people.find(p=>p.id===d.worker_id):null;
+   left.append(node('strong',d?(worker?.full_name||'Lavoratore')+' · '+(typeLabel[d.category]||'Documento'):'Documento del '+dateLabel(j.created_at)),node('small',d?stageLabel[d.stage]+' · '+dateLabel(d.created_at):dateLabel(j.created_at)),node('small',(labels[j.status]||j.status)+(j.attempts>1?' · Tentativi: '+j.attempts:'')));
+   const detail=node('details',null,'file-details'),detailTitle=node('summary','Dettagli file');
+   const original=node('small',d?d.file_name:j.document_id);original.style.overflowWrap='anywhere';detail.append(detailTitle,original);left.append(detail);
    if(j.last_error)left.append(node('small',j.last_error));
    row.append(left);
    if(j.status==='retry'||j.status==='failed')row.append(button('Riprova',async()=>{try{await driveCall('retry',{document_id:j.document_id});await refreshDrive()}catch(e){err(e)}},true));
@@ -355,9 +362,51 @@ async function refreshDrive(){
   }
   if(!result.jobs?.length)list.textContent='Nessun documento in archivio. Per le prove usa esclusivamente documenti fittizi.';
   if((result.jobs||[]).length===200)list.append(node('small','Visualizzati i 200 caricamenti più recenti.'));
+  compactList(list,'Documenti archiviati su Drive',{replaceHeading:false});
  }catch(e){summary.textContent='Impossibile aggiornare l’archivio: '+e.message;}
 }
 const refreshAdminWithUsers=refreshAdmin;
 refreshAdmin=async function(){await refreshAdminWithUsers();await refreshDrive();};
 
+
+const compactListState=new Map();
+function compactList(area,label,{collapsible=true,initialOpen=false,replaceHeading=true}={}){
+ const rows=Array.from(area.children).filter(el=>el.classList.contains('doc-row'));
+ let state=compactListState.get(label);
+ if(!state){state={open:initialOpen,limit:5};compactListState.set(label,state);}
+ // Renderers replace only the rows, keeping the section and its controls reusable.
+ let wrapper=area.parentElement;
+ if(wrapper?.dataset.compactList!==label){
+  wrapper=node(collapsible?'details':'div');wrapper.dataset.compactList=label;wrapper.className='compact-list';
+  area.before(wrapper);wrapper.append(area);
+  if(collapsible){
+   const card=wrapper.parentElement,heading=Array.from(card.children).find(el=>/^H[23]$/.test(el.tagName));
+   if(heading&&replaceHeading)heading.remove();
+   const summary=node('summary');wrapper.prepend(summary);wrapper.open=state.open;
+   wrapper.addEventListener('toggle',()=>{state.open=wrapper.open;});
+  }
+ }
+ if(collapsible){wrapper.querySelector('summary').textContent=label+' ('+rows.length+')';if(initialOpen){state.open=true;wrapper.open=true;}}
+ wrapper.querySelector('.list-pages')?.remove();
+ const controls=node('div',null,'list-pages');
+ const update=()=>{
+  rows.forEach((row,i)=>{row.hidden=i>=state.limit;});
+  controls.replaceChildren();
+  if(rows.length>5){
+   controls.append(node('small','Visualizzati '+Math.min(state.limit,rows.length)+' di '+rows.length));
+   if(state.limit<rows.length)controls.append(button('Mostra altri 5',()=>{state.limit+=5;update();},true));
+   if(state.limit>5)controls.append(button('Mostra meno',()=>{state.limit=5;update();area.scrollIntoView({behavior:'smooth',block:'nearest'});},true));
+  }
+ };
+ wrapper.append(controls);update();
+}
+
+const refreshAdminCompact=refreshAdmin;
+refreshAdmin=async function(){
+ await refreshAdminCompact();
+ if(profile?.role!=='admin'||!profile.active)return;
+ compactList($('reviewedDocs'),'Documenti verificati e richieste',{initialOpen:docs.some(d=>d.review_status==='verified'&&['ferie','rol'].includes(d.category)&&d.authorization==='pending')});
+ compactList($('auditList'),'Storico delle operazioni');
+ compactList($('pendingDocs'),'Documenti da verificare',{collapsible:false});
+};
 const appReady=boot().catch(err);
