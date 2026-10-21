@@ -1,3 +1,4 @@
+import {saveUploadDraft,readUploadDraft,deleteUploadDraft} from './upload-draft.js?v=9';
 import {createClient} from 'https://esm.sh/@supabase/supabase-js@2.49.10';
 import {SUPABASE_URL,SUPABASE_ANON_KEY} from './config.js';
 const $=id=>document.getElementById(id);
@@ -19,11 +20,11 @@ function button(label,cb,outline=false){const b=node('button',label,'doc-button'
 function showLogged(on){$('authArea').classList.toggle('hidden',on);$('loggedArea').classList.toggle('hidden',!on);$('workerArea').classList.toggle('hidden',!on||!profile?.active||profile.role==='admin');$('adminArea').classList.toggle('hidden',!on||!profile?.active||profile.role!=='admin')}
 async function boot(){if(!configured){$('setupAlert').textContent='Configurazione mancante: apri INSTALLAZIONE.md. I documenti NON vengono inviati.';showLogged(false);$('loginBtn').disabled=true;$('signupBtn').disabled=true;return}
  authClient=createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{auth:{persistSession:true,autoRefreshToken:true}});
- sb=createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{accessToken:async()=>session?.access_token??null,global:{fetch:async(input,init={})=>{const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);try{return await fetch(input,{...init,signal:controller.signal})}finally{clearTimeout(timer)}}}});$('setupAlert').classList.add('hidden');
+ sb=createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{accessToken:async()=>session?.access_token??null,global:{fetch:async(input,init={})=>{const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),String(input?.url||input).includes('/storage/v1/')?120000:20000);try{return await fetch(input,{...init,signal:controller.signal})}finally{clearTimeout(timer)}}}});$('setupAlert').classList.add('hidden');
  authClient.auth.onAuthStateChange((event,s)=>{session=s;if(event==='SIGNED_OUT'){profile=null;showLogged(false);msg('Accesso terminato.')}});
  const {data,error}=await authClient.auth.getSession();if(error)throw error;session=data.session;await reloadAccount();
 }
-async function reloadAccount(){profile=null;if(session){const {data,error}=await sb.from('profiles').select('*').eq('id',session.user.id).single();if(error){err(error);showLogged(false);return}profile=data;$('accountName').textContent=profile.full_name||session.user.email;$('accountInfo').textContent=profile.active?(profile.role==='admin'?'Amministratore':profile.site||'Sede da assegnare'):'In attesa di abilitazione';}showLogged(!!session);if(!session){msg('Accedi o richiedi la registrazione.');return}if(!profile.active){msg('Registrazione ricevuta. L’amministratore deve abilitare il tuo account.');return}msg('Accesso effettuato.');if(profile.role==='admin')await refreshAdmin();else await refreshWorker()}
+async function reloadAccount(){profile=null;if(session){const {data,error}=await sb.from('profiles').select('*').eq('id',session.user.id).single();if(error){err(error);showLogged(false);return}profile=data;$('accountName').textContent=profile.full_name||session.user.email;$('accountInfo').textContent=profile.active?(profile.role==='admin'?'Amministratore':profile.site||'Sede da assegnare'):'In attesa di abilitazione';}showLogged(!!session);if(!session){msg('Accedi o richiedi la registrazione.');return}if(!profile.active){msg('Registrazione ricevuta. L’amministratore deve abilitare il tuo account.');return}msg('Accesso effettuato.');if(profile.role==='admin')await refreshAdmin();else {await restoreUploadState();}}
 $('loginBtn').onclick=async()=>{
  const b=$('loginBtn');if(!sb){msg('Connessione in preparazione. Riprova tra qualche secondo.');return}
  const email=$('email').value.trim(),password=$('password').value;
@@ -39,10 +40,52 @@ $('loginBtn').onclick=async()=>{
  }catch(e){err(e)}finally{b.disabled=false;b.textContent='Accedi'}
 };
 $('signupBtn').onclick=async()=>{const email=$('email').value.trim(),password=$('password').value;if(!email||password.length<8){msg('Inserisci email e password di almeno 8 caratteri.');return}const full_name=prompt('Inserisci nome e cognome completi:');if(!full_name?.trim())return;const {error}=await authClient.auth.signUp({email,password,options:{data:{full_name:full_name.trim()}}});if(error)err(error);else msg('Registrazione richiesta. Controlla la tua email per confermarla, poi attendi l’abilitazione.')};
-$('logoutBtn').onclick=()=>authClient.auth.signOut();
+$('logoutBtn').onclick=async()=>{if(uploading){msg('Attendi la fine del caricamento prima di uscire.');return;}clearCameraSelection();if(session?.user?.id)await deleteUploadDraft(session.user.id).catch(()=>{});pendingDraft=null;recoveryPanel?.remove();recoveryPanel=null;await authClient.auth.signOut();};
 $('month').onchange=refreshWorker;
 
 let selectedUpload=null,uploading=false;
+
+const CAMERA_KEY='ferie-facili-test-camera-selection';
+let pendingDraft=null,recoveryPanel=null;
+function clearCameraSelection(){try{sessionStorage.removeItem(CAMERA_KEY);}catch{}}
+function rememberCameraSelection(selection){try{sessionStorage.setItem(CAMERA_KEY,JSON.stringify({selection,saved_at:Date.now()}));}catch{}}
+function readCameraSelection(worker){
+ try{const stored=JSON.parse(sessionStorage.getItem(CAMERA_KEY)||'null');
+  if(!stored||stored.selection?.worker_id!==worker||Date.now()-stored.saved_at>3600000)return null;
+  return stored.selection;
+ }catch{return null;}
+}
+function showDocuments(){
+ $('docsApp').classList.remove('hidden');$('calcApp').classList.add('hidden');
+ $('tabDocs').classList.add('active');$('tabCalc').classList.remove('active');
+}
+function renderUploadRecovery(){
+ recoveryPanel?.remove();recoveryPanel=null;
+ if(!pendingDraft||profile?.id!==pendingDraft.worker_id)return;
+ recoveryPanel=node('section',null,'card');
+ recoveryPanel.append(node('h3','Foto pronta da inviare'),node('p','La foto selezionata è conservata temporaneamente su questo dispositivo. Puoi riprendere l’invio senza scattarla di nuovo.'));
+ recoveryPanel.append(button('Riprendi invio',()=>sendUploadDraft(pendingDraft)),button('Elimina bozza',async()=>{
+  if(uploading)return;
+  await deleteUploadDraft(session.user.id).catch(()=>{});pendingDraft=null;renderUploadRecovery();msg('Bozza eliminata.');
+ },true));
+ $('workerArea').prepend(recoveryPanel);
+}
+async function restoreUploadState(){
+ if(profile?.role!=='worker'||!profile.active)return;
+ const saved=readCameraSelection(session.user.id);
+ pendingDraft=await readUploadDraft(session.user.id).catch(()=>null);
+ if(saved){
+  $('month').value=saved.month;$('workerWeek').value=saved.week||'';
+  if(saved.stage==='request'){$('docType').value=saved.category;$('docNote').value=saved.note||'';}
+ }
+ if(pendingDraft)$('month').value=pendingDraft.payload.month;
+ await refreshWorker();
+ if(saved&&!pendingDraft){
+  try{selectedUpload=validateUploadSelection(saved.stage);}catch{selectedUpload=null;}
+  showDocuments();msg('Se la fotocamera ha ricaricato la pagina, scegli la foto dalla galleria. Mese e settimana sono stati recuperati.');
+ }
+ if(pendingDraft){showDocuments();renderUploadRecovery();}
+}
 const uploadButtons=['updateSheet','replaceSheet','finalSheet','uploadOther'];
 function validateUploadSelection(a){
  if(!profile?.active||profile.role!=='worker')throw new Error('Accedi con un account lavoratore abilitato.');
@@ -58,39 +101,61 @@ function validateUploadSelection(a){
 }
 function pick(a){
  if(uploading)return;
+ if(pendingDraft){showDocuments();renderUploadRecovery();msg('Riprendi o elimina la foto già pronta prima di sceglierne un’altra.');return;}
  try{
   const selected=validateUploadSelection(a);
   if(a==='final'&&selected.month>=monthNow()&&!confirm('Il mese selezionato è ancora in corso. Il foglio definitivo deve comprendere tutti i giorni del mese. Continuare?'))return;
   if(a==='final'&&!confirm('Confermi che il foglio è completo per TUTTO il mese e firmato a mano?'))return;
-  selectedUpload=selected;$('docPicker').value='';$('docPicker').click();
+  selectedUpload=selected;rememberCameraSelection(selected);showDocuments();$('docPicker').value='';$('docPicker').click();
  }catch(e){err(e);$('appMsg').scrollIntoView({behavior:'smooth',block:'center'});}
 }
 $('updateSheet').onclick=()=>pick('weekly');$('replaceSheet').onclick=()=>pick('replacement');$('finalSheet').onclick=()=>pick('final');$('uploadOther').onclick=()=>pick('request');
 function weekEnding(){const d=new Date(),f=new Date(d);f.setDate(d.getDate()+((5-d.getDay()+7)%7));return isoLocalDate(f);}
+
 $('docPicker').onchange=async()=>{
- const file=$('docPicker').files?.[0],selected=selectedUpload;
- if(!file||!selected||uploading)return;
- selectedUpload=null;
+ // Capture the browser's File immediately, even when Auth is still restoring after a reload.
+ const file=$('docPicker').files?.[0];if(!file)return;
+ await appReady;
+ const selected=selectedUpload;
+ if(!selected||uploading)return;
  const allowed=['image/jpeg','image/png','image/webp','application/pdf'];
  if(!allowed.includes(file.type)||file.size>12*1024*1024){err(new Error('Sono accettati JPEG, PNG, WebP e PDF fino a 12 MB.'));$('appMsg').scrollIntoView({behavior:'smooth',block:'center'});return;}
  if(session?.user?.id!==selected.worker_id||!profile?.active){err(new Error('Account cambiato: seleziona nuovamente il documento.'));return;}
+ const id=crypto.randomUUID(),ext=file.type==='application/pdf'?'pdf':file.type.split('/')[1],path=selected.worker_id+'/'+selected.month+'/'+id+'.'+ext;
+ const payload={id,worker_id:selected.worker_id,site:selected.site,month:selected.month,category:selected.category,stage:selected.stage,week_ending:selected.week,replaces:selected.replaces,file_path:path,file_name:file.name,note:selected.note,authorization:['ferie','rol'].includes(selected.category)?'pending':'not_applicable'};
+ pendingDraft={worker_id:selected.worker_id,id,path,payload,file};
+ selectedUpload=null;
+ // Persist the actual photo before any network transfer. If storage is unavailable, still allow sending.
+ await saveUploadDraft(pendingDraft).catch(()=>{});
+ clearCameraSelection();
+ await sendUploadDraft(pendingDraft);
+};
+async function sendUploadDraft(draft){
+ if(!draft||uploading||session?.user?.id!==draft.worker_id||!profile?.active)return;
  uploading=true;uploadButtons.forEach(id=>$(id).disabled=true);
  try{
-  const id=crypto.randomUUID(),ext=file.type==='application/pdf'?'pdf':file.type.split('/')[1],path=selected.worker_id+'/'+selected.month+'/'+id+'.'+ext;
-  msg('Caricamento in corso…');
-  const {error:uploadError}=await sb.storage.from('private-documents').upload(path,file,{contentType:file.type,upsert:false});
-  if(uploadError)throw uploadError;
-  const payload={id,worker_id:selected.worker_id,site:selected.site,month:selected.month,category:selected.category,stage:selected.stage,week_ending:selected.week,replaces:selected.replaces,file_path:path,file_name:file.name,note:selected.note,authorization:['ferie','rol'].includes(selected.category)?'pending':'not_applicable'};
-  const {error}=await sb.from('documents').insert(payload);
-  if(error){
-   await sb.storage.from('private-documents').remove([path]);
-   if(error.message?.includes('week_for_weekly'))throw new Error('La settimana non è coerente con il tipo di invio. Aggiorna la pagina e seleziona nuovamente il venerdì.');
-   throw error;
+  showDocuments();msg('Caricamento in corso… Attendi la conferma prima di chiudere.');
+  // A response may have been lost after the INSERT succeeded. Reuse the saved UUID, never duplicate it.
+  const existing=await sb.from('documents').select('id').eq('id',draft.id).maybeSingle();
+  if(existing.error)throw existing.error;
+  if(!existing.data){
+   const {error:uploadError}=await sb.storage.from('private-documents').upload(draft.path,draft.file,{contentType:draft.file.type,upsert:false});
+   if(uploadError&&String(uploadError.statusCode)!=='409'&&!/already exists|duplicate/i.test(uploadError.message||''))throw uploadError;
+   const {error}=await sb.from('documents').insert(draft.payload);
+   if(error){
+    if(error.code==='23505'){
+     const check=await sb.from('documents').select('id').eq('id',draft.id).maybeSingle();
+     if(check.error||!check.data)throw error;
+    }else throw error;
+   }
   }
+  await deleteUploadDraft(draft.worker_id).catch(()=>{});
+  pendingDraft=null;clearCameraSelection();renderUploadRecovery();
   msg('Documento inviato correttamente. In attesa di verifica del responsabile.');await refreshWorker();
- }catch(e){err(e);$('appMsg').scrollIntoView({behavior:'smooth',block:'center'});}
- finally{uploading=false;uploadButtons.forEach(id=>$(id).disabled=false);}
-};
+ }catch(e){
+  renderUploadRecovery();err(e);$('appMsg').scrollIntoView({behavior:'smooth',block:'center'});
+ }finally{uploading=false;uploadButtons.forEach(id=>$(id).disabled=false);}
+}
 async function openFile(d){
  try{
   msg('Apertura documento…');
@@ -196,4 +261,4 @@ async function refreshDrive(){
 const refreshAdminWithUsers=refreshAdmin;
 refreshAdmin=async function(){await refreshAdminWithUsers();await refreshDrive();};
 
-boot().catch(err);
+const appReady=boot().catch(err);
