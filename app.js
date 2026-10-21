@@ -1,5 +1,5 @@
-import {createWorkerArchive} from './archive.js?v=16';
-import {createAutoArchiveScanner} from './auto-scan.js?v=16';
+import {createWorkerArchive} from './archive.js?v=17';
+import {createAutoArchiveScanner} from './auto-scan.js?v=17';
 import {saveUploadDraft,readUploadDraft,deleteUploadDraft} from './upload-draft.js?v=9';
 import {createClient} from 'https://esm.sh/@supabase/supabase-js@2.49.10';
 import {SUPABASE_URL,SUPABASE_ANON_KEY} from './config.js';
@@ -411,8 +411,13 @@ refreshAdmin=async function(){
  compactList($('auditList'),'Storico delle operazioni');
  compactList($('pendingDocs'),'Documenti da verificare',{collapsible:false});
 };
+async function monthlyStatus(action,document_id){
+ const {data,error}=await authClient.auth.getSession();if(error||!data.session)throw Error('Accedi nuovamente.');
+ const r=await fetch(SUPABASE_URL+'/functions/v1/monthly-presence-archive',{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_ANON_KEY,'Authorization':'Bearer '+data.session.access_token},body:JSON.stringify({action,document_id})});
+ const result=await r.json();if(!r.ok)throw Error(result.error||'Chiusura mensile non disponibile.');return result;
+}
 const adminAllowed=()=>!!session&&profile?.role==='admin'&&profile.active;
-const automaticScans=createAutoArchiveScanner({client:()=>sb,allowed:adminAllowed,openOriginal:openFile});
+const automaticScans=createAutoArchiveScanner({client:()=>sb,allowed:adminAllowed,openOriginal:openFile,monthlyStatus,onMonthClosed:()=>refreshAdmin().then(()=>$('archiveRefresh').click()).catch(err)});
 const archive=createWorkerArchive({client:()=>sb,allowed:adminAllowed,openFile,typeLabel,stageLabel,statusLabel,renderScan:automaticScans.render,onReset:automaticScans.clear});
 const refreshAdminArchive=refreshAdmin;
 refreshAdmin=async function(){await refreshAdminArchive();if(adminAllowed())archive.setWorkers(people);};

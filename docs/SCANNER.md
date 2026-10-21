@@ -37,3 +37,7 @@ Rilevamento basato su neutralità del colore e soglia adattiva, anziché luminos
 Regressione verificata localmente anche sul ritaglio della foto del libro visibile nello screenshot fornito dall’utente, senza caricarlo nel backend. Rimossi tavolo e sfondo esterni principali; non si può recuperare un bordo non presente nello scatto. Aggiunta regressione sintetica per carta in ombra su legno caldo con angoli a filo foto.
 
 La patch incrementale `scan-detector-v2.sql` è già applicata. Le nuove derivate usano auto-v2.jpg, così il browser non riutilizza la precedente immagine dalla cache.
+
+## v17 — solo presenze definitive
+
+Per le presenze, le regole v15/v16 sono sostituite da [MONTHLY-CLOSE.md](MONTHLY-CLOSE.md): scansione solo dell’ultimo definitivo, originale e scansione su Drive, successiva rimozione controllata dei settimanali precedenti. Le altre categorie conservano la scansione automatica.
