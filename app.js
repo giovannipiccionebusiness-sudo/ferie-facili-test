@@ -1,4 +1,4 @@
-import {saveUploadDraft,readUploadDraft,deleteUploadDraft} from './upload-draft.js?v=9';
+import {saveUploadDraft,readUploadDraft,deleteUploadDraft} from './upload-draft.js?v=20261021';
 import {createClient} from 'https://esm.sh/@supabase/supabase-js@2.49.10';
 import {SUPABASE_URL,SUPABASE_ANON_KEY} from './config.js';
 const $=id=>document.getElementById(id);
@@ -83,7 +83,7 @@ $('month').onchange=refreshWorker;
 
 let selectedUpload=null,uploading=false;
 
-const CAMERA_KEY='ferie-facili-test-camera-selection';
+const CAMERA_KEY='ferie-facili-camera-selection';
 let pendingDraft=null,recoveryPanel=null;
 function clearCameraSelection(){try{sessionStorage.removeItem(CAMERA_KEY);}catch{}}
 function rememberCameraSelection(selection){try{sessionStorage.setItem(CAMERA_KEY,JSON.stringify({selection,saved_at:Date.now()}));}catch{}}
@@ -318,7 +318,7 @@ refreshAdmin=async function(){
  if(!log.childNodes.length)log.textContent='Nessuna operazione registrata.';
 };
 
-/* Drive TEST: all OAuth secrets and Google tokens stay in the backend. */
+/* Drive archive: all OAuth secrets and Google tokens stay in the backend. */
 let drivePanel;
 async function driveCall(action,extra={}){
  const {data,error}=await authClient.auth.getSession();if(error)throw error;
@@ -333,7 +333,7 @@ async function driveCall(action,extra={}){
 async function refreshDrive(){
  if(profile?.role!=='admin'||!profile.active)return;
  if(!drivePanel){drivePanel=node('section');drivePanel.style.cssText='padding:18px;margin:16px 0;border:1px solid #ddd;border-radius:16px';$('adminArea').prepend(drivePanel);}
- drivePanel.replaceChildren(node('h3','Archivio Google Drive · TEST'));
+ drivePanel.replaceChildren(node('h3','Archivio Google Drive'));
  const summary=node('p','Verifica del collegamento…'),controls=node('div',null,'doc-toolbar'),list=node('div');drivePanel.append(summary,controls,list);
  try{
   const result=await driveCall('status');
@@ -360,7 +360,7 @@ async function refreshDrive(){
    if(j.status==='retry'||j.status==='failed')row.append(button('Riprova',async()=>{try{await driveCall('retry',{document_id:j.document_id});await refreshDrive()}catch(e){err(e)}},true));
    list.append(row);
   }
-  if(!result.jobs?.length)list.textContent='Nessun documento in archivio. Per le prove usa esclusivamente documenti fittizi.';
+  if(!result.jobs?.length)list.textContent='Nessun documento ancora presente nell’archivio.';
   if((result.jobs||[]).length===200)list.append(node('small','Visualizzati i 200 caricamenti più recenti.'));
   compactList(list,'Documenti archiviati su Drive',{replaceHeading:false});
  }catch(e){summary.textContent='Impossibile aggiornare l’archivio: '+e.message;}

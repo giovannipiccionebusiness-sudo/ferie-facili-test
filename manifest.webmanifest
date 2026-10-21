@@ -1,7 +1,7 @@
 {
-  "name": "Ferie Facili — TEST",
-  "short_name": "Ferie TEST",
-  "description": "Versione di prova — presenze e documenti riservati",
+  "name": "Ferie Facili — Presenze, ferie e documenti",
+  "short_name": "Ferie Facili",
+  "description": "Calcolatore ferie e ROL, presenze e documenti riservati ai lavoratori.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
@@ -10,17 +10,16 @@
   "lang": "it",
   "icons": [
     {
-      "src": "icon-192.png",
+      "src": "icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "icon-512.png",
+      "src": "icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     }
-  ],
-  "id": "./"
+  ]
 }

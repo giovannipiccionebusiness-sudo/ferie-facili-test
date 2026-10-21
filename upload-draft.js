@@ -1,5 +1,5 @@
 // One temporary, private upload draft per signed-in worker; no credentials stored.
-const DB='ferie-facili-test-upload',STORE='drafts',MAX_AGE=60*60*1000;
+const DB='ferie-facili-upload',STORE='drafts',MAX_AGE=60*60*1000;
 function database(){
  return new Promise((resolve,reject)=>{
   const req=indexedDB.open(DB,1);
