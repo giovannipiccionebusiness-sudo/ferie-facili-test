@@ -1,4 +1,4 @@
-import {validCorners} from './scanner-core.js?v=18';
+import {validCorners} from './scanner-core.js?v=19';
 // Straight border evidence and repeated sleeve perforations, not text recognition.
 export function edgePaper({data,width:w,height:h}){
  const lum=new Float32Array(w*h),paper=new Float32Array(w*h);for(let i=0;i<lum.length;i++){const k=i*4,r=data[k],g=data[k+1],b=data[k+2];lum[i]=.299*r+.587*g+.114*b;paper[i]=Math.min(r,g,b)-.5*(Math.max(r,g,b)-Math.min(r,g,b));}

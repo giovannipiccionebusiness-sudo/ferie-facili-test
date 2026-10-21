@@ -1,5 +1,5 @@
-import {createWorkerArchive} from './archive.js?v=18';
-import {createAutoArchiveScanner} from './auto-scan.js?v=18';
+import {createWorkerArchive} from './archive.js?v=19';
+import {createAutoArchiveScanner} from './auto-scan.js?v=19';
 import {saveUploadDraft,readUploadDraft,deleteUploadDraft} from './upload-draft.js?v=9';
 import {createClient} from 'https://esm.sh/@supabase/supabase-js@2.49.10';
 import {SUPABASE_URL,SUPABASE_ANON_KEY} from './config.js';

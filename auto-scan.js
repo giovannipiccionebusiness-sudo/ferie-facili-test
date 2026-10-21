@@ -1,5 +1,6 @@
-import {edgePaper} from './edge-crop.js?v=18';
-import {detectPaper,warpImage} from './scanner-core.js?v=18';
+import {cleanPaper} from './paper-clean.js?v=19';
+import {edgePaper} from './edge-crop.js?v=19';
+import {detectPaper,warpImage} from './scanner-core.js?v=19';
 // Colour-preserving deterministic processing. No generated text or OCR.
 export async function autoScanPhoto(blob){
  let image;const url=URL.createObjectURL(blob);
@@ -14,7 +15,7 @@ export async function autoScanPhoto(blob){
   const page=document.createElement('canvas');page.width=landscape?1800:1273;page.height=landscape?1273:1800;const out=page.getContext('2d');out.fillStyle='white';out.fillRect(0,0,page.width,page.height);
   if(cropped){const pixels=warpImage(ctx.getImageData(0,0,src.width,src.height),points,page.width,page.height,false);out.putImageData(new ImageData(pixels.data,page.width,page.height),0,0);}
   else{const scale=Math.min(page.width/src.width,page.height/src.height);out.drawImage(src,(page.width-src.width*scale)/2,(page.height-src.height*scale)/2,src.width*scale,src.height*scale);}
-  const pixels=out.getImageData(0,0,page.width,page.height);for(let k=0;k<pixels.data.length;k+=4)for(let c=0;c<3;c++)pixels.data[k+c]=Math.max(0,Math.min(255,(pixels.data[k+c]-128)*1.06+136));out.putImageData(pixels,0,0);
+  const pixels=cleanPaper(out.getImageData(0,0,page.width,page.height));out.putImageData(new ImageData(pixels.data,page.width,page.height),0,0);
   const file=await new Promise(r=>page.toBlob(r,'image/jpeg',.93));if(!file)throw Error('Impossibile preparare la scansione.');return {file,cropped,width:page.width,height:page.height};
  }finally{image?.close?.();URL.revokeObjectURL(url);}
 }
@@ -36,12 +37,12 @@ export function createAutoArchiveScanner({client,allowed,openOriginal,monthlySta
    const db=client();if(monthly){const latest=await db.from('documents').select('id').eq('worker_id',d.worker_id).eq('month',d.month).eq('category','presenze').eq('stage','final').order('created_at',{ascending:false}).order('id',{ascending:false}).limit(1);if(latest.error)throw latest.error;if(latest.data?.[0]?.id!==d.id)return {skip:true};}
    const r=await db.from('test_document_scans').select('*').eq('document_id',d.id).maybeSingle();if(r.error)throw r.error;
    if(!current())return null;
-   let row=r.data?.source_path===d.file_path&&r.data.algorithm_version===3?r.data:null,blob;
+   let row=r.data?.source_path===d.file_path&&r.data.algorithm_version===4?r.data:null,blob;
    if(row){const saved=await db.storage.from('document-scans-test').download(row.file_path);if(!saved.error)blob=saved.data;}
    if(!blob){state.textContent='Ritaglio e miglioramento automatici in corso…';const src=await db.storage.from('private-documents').download(d.file_path);if(src.error)throw src.error;if(!current())return null;
     const result=pdf?{file:src.data,cropped:false}:await autoScanPhoto(src.data);if(!current())return null;blob=result.file;
     const path=d.id+(pdf?'/auto-v3.pdf':'/auto-v3.jpg'),upload=await db.storage.from('document-scans-test').upload(path,blob,{contentType:pdf?'application/pdf':'image/jpeg',upsert:true});if(upload.error)throw upload.error;if(!current())return null;
-    row={document_id:d.id,source_path:d.file_path,file_path:path,cropped:result.cropped,algorithm_version:3};const save=await db.from('test_document_scans').upsert(row,{onConflict:'document_id'});if(save.error)throw save.error;
+    row={document_id:d.id,source_path:d.file_path,file_path:path,cropped:result.cropped,algorithm_version:4};const save=await db.from('test_document_scans').upsert(row,{onConflict:'document_id'});if(save.error)throw save.error;
    }
    if(!current())return null;const url=URL.createObjectURL(blob);urls.add(url);return {url,cropped:row.cropped,pdf};
   }

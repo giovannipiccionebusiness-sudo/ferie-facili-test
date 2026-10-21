@@ -1,0 +1,6 @@
+import assert from 'node:assert/strict';import {cleanPaper} from '../paper-clean.js';
+const w=512,h=704,data=new Uint8ClampedArray(w*h*4);
+for(let y=0;y<h;y++)for(let x=0;x<w;x++){const k=(y*w+x)*4,shade=.55+.4*x/w;let rgb=[245,238,225];if(x>40&&x<460&&y%36>=12&&y%36<14)rgb=[35,35,35];if(y===333)rgb=[180,175,165];if(x>50&&x<150&&y>50&&y<75)rgb=[185,15,45];if(x>200&&x<350&&y>500&&y<503)rgb=[30,65,150];for(let c=0;c<3;c++)data[k+c]=rgb[c]*shade;data[k+3]=255;}
+const result=cleanPaper({data,width:w,height:h});const sample=(x,y)=>[...result.data.slice((y*w+x)*4,(y*w+x)*4+3)];
+assert.ok(Math.min(...sample(60,100))>242,'shadowed paper white');assert.ok(Math.min(...sample(450,100))>242,'lit paper white');assert.ok(Math.max(...sample(100,12))<65,'black text preserved');assert.ok(sample(80,60)[0]>sample(80,60)[1]*3,'red logo preserved');assert.ok(sample(250,501)[2]>sample(250,501)[0]*3,'blue signature preserved');assert.ok(Math.max(...sample(250,333))<220,'faint rule preserved');assert.equal(data[3],255);assert.notEqual(result.data,data);assert.equal(result.data.length,data.length);
+console.log('PASS fictitious shaded A4: white paper, black text, red logo, blue signature and faint rules preserved.');
