@@ -1,3 +1,5 @@
+import {scanDocument} from './scanner.js?v=14';
+let scanning=false;
 import {saveUploadDraft,readUploadDraft,deleteUploadDraft} from './upload-draft.js?v=9';
 import {createClient} from 'https://esm.sh/@supabase/supabase-js@2.49.10';
 import {SUPABASE_URL,SUPABASE_ANON_KEY} from './config.js';
@@ -78,7 +80,7 @@ $('loginBtn').onclick=async()=>{
  }catch(e){err(e)}finally{b.disabled=false;b.textContent='Accedi'}
 };
 $('signupBtn').onclick=async()=>{const email=$('email').value.trim(),password=$('password').value;if(!email||password.length<8){msg('Inserisci email e password di almeno 8 caratteri.');return}const full_name=prompt('Inserisci nome e cognome completi:');if(!full_name?.trim())return;const {error}=await authClient.auth.signUp({email,password,options:{data:{full_name:full_name.trim()}}});if(error)err(error);else msg('Registrazione richiesta. Controlla la tua email per confermarla, poi attendi l’abilitazione.')};
-$('logoutBtn').onclick=async()=>{if(uploading){msg('Attendi la fine del caricamento prima di uscire.');return;}clearCameraSelection();clearCameraRetry();uploadStatusPanel?.remove();uploadStatusPanel=null;uploadBar=null;uploadStatusText=null;if(session?.user?.id)await deleteUploadDraft(session.user.id).catch(()=>{});pendingDraft=null;recoveryPanel?.remove();recoveryPanel=null;await authClient.auth.signOut();};
+$('logoutBtn').onclick=async()=>{if(uploading||scanning){msg('Attendi la fine del caricamento prima di uscire.');return;}clearCameraSelection();clearCameraRetry();uploadStatusPanel?.remove();uploadStatusPanel=null;uploadBar=null;uploadStatusText=null;if(session?.user?.id)await deleteUploadDraft(session.user.id).catch(()=>{});pendingDraft=null;recoveryPanel?.remove();recoveryPanel=null;await authClient.auth.signOut();};
 $('month').onchange=refreshWorker;
 
 let selectedUpload=null,uploading=false;
@@ -171,7 +173,7 @@ function validateUploadSelection(a){
  return Object.freeze({stage:a,month,week,category:a==='request'?$('docType').value:'presenze',replaces:a==='replacement'?recent[0].id:null,note:a==='request'?$('docNote').value.trim():'',worker_id:session.user.id,site:profile.site});
 }
 function pick(a){
- if(uploading)return;
+ if(uploading||scanning)return;
  if(pendingDraft){showDocuments();renderUploadRecovery();msg('Riprendi o elimina la foto già pronta prima di sceglierne un’altra.');return;}
  try{
   const selected=validateUploadSelection(a);
@@ -184,23 +186,24 @@ $('updateSheet').onclick=()=>pick('weekly');$('replaceSheet').onclick=()=>pick('
 function weekEnding(){const d=new Date(),f=new Date(d);f.setDate(d.getDate()+((5-d.getDay()+7)%7));return isoLocalDate(f);}
 
 $('docPicker').onchange=async()=>{
- // Capture the browser's File immediately, even when Auth is still restoring after a reload.
- const file=$('docPicker').files?.[0];if(!file){checkCameraReturn();return;}
- clearCameraRetry();
- await appReady;
- const selected=selectedUpload;
- if(!selected||uploading)return;
+ let file=$('docPicker').files?.[0];if(!file){checkCameraReturn();return;}
+ clearCameraRetry();await appReady;const selected=selectedUpload;
+ if(!selected||uploading||scanning)return;
  const allowed=['image/jpeg','image/png','image/webp','application/pdf'];
- if(!allowed.includes(file.type)||file.size>12*1024*1024){err(new Error('Sono accettati JPEG, PNG, WebP e PDF fino a 12 MB.'));$('appMsg').scrollIntoView({behavior:'smooth',block:'center'});return;}
+ if(!allowed.includes(file.type)||file.size>12*1024*1024){err(new Error('Sono accettati JPEG, PNG, WebP e PDF fino a 12 MB.'));return;}
  if(session?.user?.id!==selected.worker_id||!profile?.active){err(new Error('Account cambiato: seleziona nuovamente il documento.'));return;}
- const id=crypto.randomUUID(),ext=file.type==='application/pdf'?'pdf':file.type.split('/')[1],path=selected.worker_id+'/'+selected.month+'/'+id+'.'+ext;
- const payload={id,worker_id:selected.worker_id,site:selected.site,month:selected.month,category:selected.category,stage:selected.stage,week_ending:selected.week,replaces:selected.replaces,file_path:path,file_name:file.name,note:selected.note,authorization:['ferie','rol'].includes(selected.category)?'pending':'not_applicable'};
- pendingDraft={worker_id:selected.worker_id,id,path,payload,file};
- selectedUpload=null;
- // Persist the actual photo before any network transfer. If storage is unavailable, still allow sending.
- showUploadProgress('Preparazione della foto…');
- await saveUploadDraft(pendingDraft).catch(()=>{});
- clearCameraSelection();
+ const id=crypto.randomUUID();
+ const draftFor=f=>{const ext=f.type==='application/pdf'?'pdf':f.type.split('/')[1],path=selected.worker_id+'/'+selected.month+'/'+id+'.'+ext;return {worker_id:selected.worker_id,id,path,file:f,payload:{id,worker_id:selected.worker_id,site:selected.site,month:selected.month,category:selected.category,stage:selected.stage,week_ending:selected.week,replaces:selected.replaces,file_path:path,file_name:f.name,note:selected.note,authorization:['ferie','rol'].includes(selected.category)?'pending':'not_applicable'}};};
+ selectedUpload=null;pendingDraft=draftFor(file);scanning=true;uploadButtons.forEach(id=>$(id).disabled=true);
+ try{
+  // Save the received original before opening the editor, so a mobile reload is recoverable.
+  await saveUploadDraft(pendingDraft).catch(()=>{});clearCameraSelection();
+  file=await scanDocument(file);
+  if(!file){await deleteUploadDraft(selected.worker_id).catch(()=>{});pendingDraft=null;renderUploadRecovery();msg('Scansione annullata. Nessun documento inviato.');return;}
+  if(session?.user?.id!==selected.worker_id||!profile?.active)throw Error('Account cambiato. Accedi nuovamente prima di inviare.');
+  pendingDraft=draftFor(file);await saveUploadDraft(pendingDraft).catch(()=>{});
+ }catch(e){err(e);renderUploadRecovery();return;}
+ finally{scanning=false;uploadButtons.forEach(id=>$(id).disabled=false);}
  await sendUploadDraft(pendingDraft);
 };
 async function sendUploadDraft(draft){
@@ -410,3 +413,4 @@ refreshAdmin=async function(){
  compactList($('pendingDocs'),'Documenti da verificare',{collapsible:false});
 };
 const appReady=boot().catch(err);
+
