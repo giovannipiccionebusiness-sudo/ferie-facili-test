@@ -17,10 +17,48 @@ function msg(t){$('appMsg').textContent=t}
 function err(e){msg(e?.message||String(e))}
 function node(tag,text,cls){const el=document.createElement(tag);if(text!=null)el.textContent=text;if(cls)el.className=cls;return el}
 function button(label,cb,outline=false){const b=node('button',label,'doc-button'+(outline?' outline':''));b.type='button';b.onclick=cb;return b}
+
+let uploadProgressListener=null;
+function fetchWithUploadProgress(input,init={}){
+ const url=String(input?.url||input),method=String(init.method||input?.method||'GET').toUpperCase();
+ if(!uploadProgressListener||method!=='POST'||!url.includes('/storage/v1/object/private-documents/'))return fetch(input,init);
+ return new Promise((resolve,reject)=>{
+  const xhr=new XMLHttpRequest();
+  xhr.open(method,url);xhr.timeout=120000;
+  new Headers(init.headers||input?.headers||{}).forEach((value,name)=>xhr.setRequestHeader(name,value));
+  const abort=()=>xhr.abort();
+  if(init.signal?.aborted){reject(new DOMException('Caricamento annullato','AbortError'));return;}
+  init.signal?.addEventListener('abort',abort,{once:true});
+  const cleanup=()=>init.signal?.removeEventListener('abort',abort);
+  xhr.upload.onprogress=event=>{if(event.lengthComputable)uploadProgressListener?.(Math.min(100,Math.round(event.loaded/event.total*100)));};
+  xhr.onload=()=>{cleanup();resolve(new Response(xhr.responseText,{status:xhr.status,statusText:xhr.statusText,headers:xhr.getAllResponseHeaders().trim().split(/[\r\n]+/).filter(Boolean).map(line=>{const i=line.indexOf(':');return [line.slice(0,i),line.slice(i+1).trim()];})}));};
+  xhr.onerror=()=>{cleanup();reject(new Error('Connessione interrotta. Puoi riprendere l’invio.'));};
+  xhr.ontimeout=()=>{cleanup();reject(new Error('Invio troppo lento. Puoi riprendere l’invio.'));};
+  xhr.onabort=()=>{cleanup();reject(new DOMException('Caricamento interrotto. Puoi riprendere l’invio.','AbortError'));};
+  xhr.send(init.body??null);
+ });
+}
+let uploadStatusPanel=null,uploadBar=null,uploadStatusText=null;
+function showUploadProgress(text,percent=null,completed=false,failed=false){
+ if(!uploadStatusPanel){
+  uploadStatusPanel=node('section',null,'card');uploadStatusPanel.style.cssText='position:sticky;top:8px;z-index:20;padding:18px;border:2px solid #087c70;box-shadow:0 6px 24px #0002;background:#fff';
+  uploadStatusPanel.setAttribute('role','status');uploadStatusPanel.setAttribute('aria-live','polite');
+  uploadStatusText=node('strong');uploadBar=node('progress');uploadBar.max=100;
+  uploadBar.style.cssText='display:block;width:100%;height:22px;margin-top:12px;accent-color:#087c70';
+  uploadBar.setAttribute('aria-label','Avanzamento invio documento');
+  uploadStatusPanel.append(uploadStatusText,uploadBar);$('workerArea').prepend(uploadStatusPanel);
+ }
+ uploadStatusText.textContent=text;
+ uploadStatusPanel.style.borderColor=failed?'#b42318':completed?'#087c70':'#268b81';
+ uploadBar.hidden=failed;
+ if(percent===null)uploadBar.removeAttribute('value');else uploadBar.value=percent;
+ uploadStatusPanel.setAttribute('aria-busy',String(!completed&&!failed));
+}
+
 function showLogged(on){$('authArea').classList.toggle('hidden',on);$('loggedArea').classList.toggle('hidden',!on);$('workerArea').classList.toggle('hidden',!on||!profile?.active||profile.role==='admin');$('adminArea').classList.toggle('hidden',!on||!profile?.active||profile.role!=='admin')}
 async function boot(){if(!configured){$('setupAlert').textContent='Configurazione mancante: apri INSTALLAZIONE.md. I documenti NON vengono inviati.';showLogged(false);$('loginBtn').disabled=true;$('signupBtn').disabled=true;return}
  authClient=createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{auth:{persistSession:true,autoRefreshToken:true}});
- sb=createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{accessToken:async()=>session?.access_token??null,global:{fetch:async(input,init={})=>{const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),String(input?.url||input).includes('/storage/v1/')?120000:20000);try{return await fetch(input,{...init,signal:controller.signal})}finally{clearTimeout(timer)}}}});$('setupAlert').classList.add('hidden');
+ sb=createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{accessToken:async()=>session?.access_token??null,global:{fetch:async(input,init={})=>{const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),String(input?.url||input).includes('/storage/v1/')?120000:20000);try{return await fetchWithUploadProgress(input,{...init,signal:controller.signal})}finally{clearTimeout(timer)}}}});$('setupAlert').classList.add('hidden');
  authClient.auth.onAuthStateChange((event,s)=>{session=s;if(event==='SIGNED_OUT'){profile=null;showLogged(false);msg('Accesso terminato.')}});
  const {data,error}=await authClient.auth.getSession();if(error)throw error;session=data.session;await reloadAccount();
 }
@@ -40,7 +78,7 @@ $('loginBtn').onclick=async()=>{
  }catch(e){err(e)}finally{b.disabled=false;b.textContent='Accedi'}
 };
 $('signupBtn').onclick=async()=>{const email=$('email').value.trim(),password=$('password').value;if(!email||password.length<8){msg('Inserisci email e password di almeno 8 caratteri.');return}const full_name=prompt('Inserisci nome e cognome completi:');if(!full_name?.trim())return;const {error}=await authClient.auth.signUp({email,password,options:{data:{full_name:full_name.trim()}}});if(error)err(error);else msg('Registrazione richiesta. Controlla la tua email per confermarla, poi attendi l’abilitazione.')};
-$('logoutBtn').onclick=async()=>{if(uploading){msg('Attendi la fine del caricamento prima di uscire.');return;}clearCameraSelection();if(session?.user?.id)await deleteUploadDraft(session.user.id).catch(()=>{});pendingDraft=null;recoveryPanel?.remove();recoveryPanel=null;await authClient.auth.signOut();};
+$('logoutBtn').onclick=async()=>{if(uploading){msg('Attendi la fine del caricamento prima di uscire.');return;}clearCameraSelection();uploadStatusPanel?.remove();uploadStatusPanel=null;uploadBar=null;uploadStatusText=null;if(session?.user?.id)await deleteUploadDraft(session.user.id).catch(()=>{});pendingDraft=null;recoveryPanel?.remove();recoveryPanel=null;await authClient.auth.signOut();};
 $('month').onchange=refreshWorker;
 
 let selectedUpload=null,uploading=false;
@@ -126,6 +164,7 @@ $('docPicker').onchange=async()=>{
  pendingDraft={worker_id:selected.worker_id,id,path,payload,file};
  selectedUpload=null;
  // Persist the actual photo before any network transfer. If storage is unavailable, still allow sending.
+ showUploadProgress('Preparazione della foto…');
  await saveUploadDraft(pendingDraft).catch(()=>{});
  clearCameraSelection();
  await sendUploadDraft(pendingDraft);
@@ -134,13 +173,17 @@ async function sendUploadDraft(draft){
  if(!draft||uploading||session?.user?.id!==draft.worker_id||!profile?.active)return;
  uploading=true;uploadButtons.forEach(id=>$(id).disabled=true);
  try{
-  showDocuments();msg('Caricamento in corso… Attendi la conferma prima di chiudere.');
+  showDocuments();showUploadProgress('Preparazione invio…');uploadStatusPanel.scrollIntoView({behavior:'smooth',block:'start'});msg('Caricamento in corso… Attendi la conferma prima di chiudere.');
   // A response may have been lost after the INSERT succeeded. Reuse the saved UUID, never duplicate it.
   const existing=await sb.from('documents').select('id').eq('id',draft.id).maybeSingle();
   if(existing.error)throw existing.error;
   if(!existing.data){
+   showUploadProgress('Invio foto · 0%',0);
+   uploadProgressListener=percent=>showUploadProgress('Invio foto · '+percent+'%',percent);
    const {error:uploadError}=await sb.storage.from('private-documents').upload(draft.path,draft.file,{contentType:draft.file.type,upsert:false});
+   uploadProgressListener=null;
    if(uploadError&&String(uploadError.statusCode)!=='409'&&!/already exists|duplicate/i.test(uploadError.message||''))throw uploadError;
+   showUploadProgress('Foto inviata. Salvataggio del documento…');
    const {error}=await sb.from('documents').insert(draft.payload);
    if(error){
     if(error.code==='23505'){
@@ -151,10 +194,11 @@ async function sendUploadDraft(draft){
   }
   await deleteUploadDraft(draft.worker_id).catch(()=>{});
   pendingDraft=null;clearCameraSelection();renderUploadRecovery();
+  showUploadProgress('✓ Documento caricato correttamente · 100%',100,true);
   msg('Documento inviato correttamente. In attesa di verifica del responsabile.');await refreshWorker();
  }catch(e){
-  renderUploadRecovery();err(e);$('appMsg').scrollIntoView({behavior:'smooth',block:'center'});
- }finally{uploading=false;uploadButtons.forEach(id=>$(id).disabled=false);}
+  showUploadProgress('Invio non completato. Premi Riprendi invio.',null,false,true);renderUploadRecovery();err(e);$('appMsg').scrollIntoView({behavior:'smooth',block:'center'});
+ }finally{uploadProgressListener=null;uploading=false;uploadButtons.forEach(id=>$(id).disabled=false);}
 }
 async function openFile(d){
  try{

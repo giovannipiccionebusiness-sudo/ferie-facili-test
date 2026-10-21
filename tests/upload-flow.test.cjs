@@ -4,7 +4,7 @@ const source=fs.readFileSync(process.argv[2]||path.join(__dirname,'../app.js'),'
 const worker='a1111111-1111-4111-8111-111111111111';
 function fixture(shared={session:new Map(),drafts:new Map()}){
  const nodes=new Map();
- function element(){return {value:'',textContent:'',disabled:false,files:[],style:{},classList:{toggle(){},add(){},remove(){}},addEventListener(){},click(){},focus(){},scrollIntoView(){},append(){},prepend(){},remove(){}};}
+ function element(){return {value:'',textContent:'',disabled:false,files:[],style:{},classList:{toggle(){},add(){},remove(){}},addEventListener(){},click(){},focus(){},scrollIntoView(){},setAttribute(){},removeAttribute(){},append(){},prepend(){},remove(){}};}
  const get=id=>{if(!nodes.has(id))nodes.set(id,element());return nodes.get(id);};
  const sandbox={document:{getElementById:get,createElement:element},console,Date,Set,Map,Object,JSON,String,Number,Promise,RegExp,Error,confirm:()=>true,
  sessionStorage:{setItem:(k,v)=>shared.session.set(k,v),getItem:k=>shared.session.get(k)||null,removeItem:k=>shared.session.delete(k)},
@@ -15,7 +15,7 @@ function fixture(shared={session:new Map(),drafts:new Map()}){
  globalThis.h={
  pick,restoreUploadState,sendUploadDraft,readCameraSelection,
  init(fake){sb=fake;profile={id:'${worker}',role:'worker',active:true,site:'N153'};session={user:{id:'${worker}'}};docs=[];refreshWorker=async()=>{};},
- selected:()=>selectedUpload,draft:()=>pendingDraft,isoLocalDate
+ progress:()=>uploadStatusText?.textContent,selected:()=>selectedUpload,draft:()=>pendingDraft,isoLocalDate
  };`;
  vm.runInContext(source.replace(/^import .*;$/gm,'').replace('const appReady=boot().catch(err);','const appReady=Promise.resolve();')+hooks,sandbox);
  get('month').value='2026-10';get('workerWeek').value='2026-10-23';get('docType').value='ferie';
@@ -27,15 +27,15 @@ function backend({upload=async()=>({error:null}),insert=async()=>({error:null}),
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 (async()=>{
- let payload,release,uploads=0;
- const f=fixture();f.h.init(backend({upload:()=>{uploads++;return new Promise(r=>release=r);},insert:async p=>{payload=p;return {error:null};}}));
+ let payload,release,releaseSave,uploads=0;
+ const f=fixture();f.h.init(backend({upload:()=>{uploads++;return new Promise(r=>release=r);},insert:async p=>{payload=p;return new Promise(resolve=>releaseSave=resolve);}}));
  f.get('workerWeek').value='';f.h.pick('weekly');assert.match(f.get('appMsg').textContent,/venerdì/);assert.equal(f.h.selected(),null);
  f.get('workerWeek').value='2026-10-22';f.h.pick('weekly');assert.equal(f.h.selected(),null);assert.equal(uploads,0);
  f.get('workerWeek').value='2026-10-23';f.h.pick('weekly');
  const running=f.get('docPicker').onchange();await tick();
  f.get('workerWeek').value='';f.get('month').value='2026-11';f.h.pick('request');
  assert.equal(f.get('updateSheet').disabled,true);assert.equal(f.shared.drafts.size,1);
- release({error:null});await running;
+ release({error:null});await tick();assert.match(f.h.progress(),/Salvataggio/);assert.doesNotMatch(f.h.progress(),/caricato correttamente/);releaseSave({error:null});await running;assert.match(f.h.progress(),/100%/);
  assert.equal(payload.stage,'weekly');assert.equal(payload.week_ending,'2026-10-23');assert.equal(payload.month,'2026-10');assert.equal(f.shared.drafts.size,0);
  assert.equal(f.get('updateSheet').disabled,false);
  const r=fixture();r.h.init(backend({insert:async p=>{payload=p;return {error:null};}}));
