@@ -1,21 +1,31 @@
-# Scansione documenti A4 — solo TEST
+# Scansione automatica nell’archivio — solo TEST (v15)
 
-Dopo la scelta di un JPEG/PNG/WebP, l'app apre un editor locale. Il rilevamento dei bordi è una proposta basata sul contrasto: con sfondi chiari, ombre o fogli parziali occorre correggere i quattro angoli. Si può ruotare la foto, scegliere A4 verticale/orizzontale e mantenere il colore o aumentare moderatamente contrasto e luminosità in grigio. È pensato per fogli A4: controllare orientamento, ritaglio, proporzioni e leggibilità nell'anteprima.
+## Lavoratore
 
-“Anteprima A4” prepara una pagina PDF. “Usa PDF A4” conferma e avvia il normale caricamento. “Usa foto originale” invia la foto senza elaborazione. “Annulla” non invia alcun documento. I PDF scelti dal lavoratore passano direttamente al caricamento senza modifiche.
+Il caricamento è tornato diretto: foto/PDF → invio con barra di avanzamento e conferma. Non vengono richiesti ritagli, anteprime o conferme aggiuntive. L’originale viene salvato come prima nel bucket privato e segue la coda Drive esistente.
 
-La scansione applica una trasformazione prospettica deterministica; nessun OCR, ricostruzione di testo o servizio esterno. Non corregge sfocatura, parti tagliate nello scatto, ombre forti o pieghe. La resa in grigio è facoltativa e può ridurre i segni molto chiari: controllare sempre firme e scritte prima di confermare.
+## Responsabile
 
-## Originale e recupero
+Documenti → Archivio lavoratori → selezionare il lavoratore. Per le foto nella pagina visualizzata parte automaticamente una coda locale, un file alla volta: riconoscimento dei bordi, correzione prospettica, lieve aumento di contrasto/luminosità preservando i colori, anteprima con proporzioni A4. La copia JPEG viene salvata nel bucket privato `document-scans-test`, con riferimento nella tabella `test_document_scans`. Alle aperture successive viene riutilizzata.
 
-Il PDF contiene una sola pagina A4 e il file originale esatto come allegato PDF, non come seconda pagina. Per estrarre l'allegato usare un lettore che supporti gli allegati; alcune anteprime mobili non li mostrano. La foto originale viene anche salvata nella bozza temporanea locale prima dell'editor: se Android ricarica la pagina, può essere ripresa come foto originale. Dopo la conferma, la bozza contiene il PDF e conserva lo stesso UUID. Le limitazioni preesistenti di IndexedDB/spazio disponibile restano applicabili.
+La scheda mostra direttamente la foto migliorata e i comandi **Apri scansione** e **Apri originale**. Se i bordi non sono sufficientemente sicuri, non viene ritagliata la foto: viene migliorata intera e centrata in A4 senza stiramento, con avviso esplicito. I PDF restano originali e non vengono rasterizzati. Un errore nella scansione lascia disponibile l’originale e offre Riprova.
 
-Il PDF comprensivo dell'originale deve rispettare il limite di 12 MB: altrimenti l'editor propone di usare l'originale o una foto più piccola. Il server riceve il PDF accettato attraverso lo stesso bucket privato, le stesse policy e la coda Drive esistente. Nessun nuovo accesso pubblico, secret o modifica del database. Nessuna modifica a calcolatore-ferie.
+L’elaborazione automatica avviene quando il responsabile apre nell’archivio i documenti del lavoratore, con pagina aperta e connessione disponibile. Non è un’elaborazione server a pagina chiusa. Si applica anche alle foto già presenti. La tabella documenti e l’originale sono immutati: la scansione non è una nuova consegna, non modifica verifiche/autorizzazioni e non invia notifiche. La copia migliorata in questa prova è nel nuovo archivio privato Supabase; su Google Drive continua a essere archiviato l’originale con la procedura esistente.
 
-## Verifiche con dati fittizi
+## Sicurezza
 
-- `node tests/scanner-core.test.mjs`: convessità, omografia, rilevamento/fallback, ricampionamento, grigio, struttura PDF.
-- Browser Chromium con viewport 390×844 e 1280×900: editor, angoli, rilevamento automatico su foto sintetica prospettica, rotazione, anteprima, colore/grigio e invalidazione, originale e annullamento.
-- Parsing e rendering PDF: singola pagina A4 595,28 × 841,89 pt; confronto dei byte dell'allegato con la foto scelta: identici. Testo ai bordi e firma fittizia inclusi nella scansione.
-- Flusso lavoratore con backend completamente simulato: nessun trasferimento prima della conferma, invio singolo PDF con percorso/metadati corretti, nessun invio in caso di annullamento.
-- Nessun documento reale letto o caricato. Il collaudo fisico su fotocamere Android/iPhone e il trasferimento effettivo di un PDF sintetico nel proprio account restano da eseguire nell'app TEST.
+`scan-schema.sql` è già stato applicato al backend vffnfulorjftailxyghp; non rieseguirlo. Tabella e bucket dedicati al TEST, RLS e policy per amministratore attivo. I lavoratori non possono leggere o creare copie migliorate. Nessuna nuova chiave, token o credenziale. Nessuna modifica al repository calcolatore-ferie.
+
+Elaborazione Canvas deterministica locale: niente OCR o generazione di scritte/firme, nessun servizio di elaborazione esterno. La scansione non recupera parti non fotografate, sfocatura o segni illeggibili. I bordi automatici possono essere imprecisi: l’originale resta sempre consultabile.
+
+L’editor interattivo v14 non è più collegato al caricamento. Le eventuali scansioni PDF create precedentemente restano immutate; il relativo originale rimane allegato nel PDF.
+
+## Collaudo con dati fittizi
+
+- Core: validazione quadrilatero, omografia, rilevamento/fallback, campionamento e contrasto.
+- Browser reale Chromium: scansione di foto prospettica sintetica con firma fittizia e riferimenti ai bordi; fallback su sfondo incerto senza ritaglio; persistenza e riuso della copia; apertura scansione/originale; blocco elaborazione per lavoratore/logout.
+- Flusso completo lavoratore con backend simulato: invio singolo della foto originale, nessun editor o elaborazione aggiuntiva.
+- Flusso completo amministratore con backend simulato: archivio per lavoratore, scansione automatica, anteprima, riuso dopo aggiornamento, layout telefono/computer e navigazione gestione.
+- `tests/scan-security.sql`: amministratore legge/scrive la copia, lavoratore bloccato su tabella e Storage, originale invariato; fixture di lavoratore/documento/oggetti annullate con ROLLBACK. Il test usa il contesto di autorizzazione admin esistente senza modificarlo: esiste un vincolo di amministratore unico.
+- Advisors: nessuna nuova segnalazione di sicurezza; restano le segnalazioni preesistenti sulle tabelle Drive intenzionalmente chiuse e sulla protezione password compromesse.
+- Nessun documento reale letto, elaborato o caricato durante le prove. Il collaudo su dispositivo fisico e il trasferimento HTTP effettivo della derivata richiedono una prova con foglio fittizio nell’app TEST.
