@@ -67,3 +67,5 @@ export function createWorkerArchive({client,allowed,openFile,typeLabel,stageLabe
  return {clear,setWorkers(rows){if(!allowed()){clear();return;}workers=rows.filter(p=>p.role==='worker').sort((a,b)=>(a.full_name||'').localeCompare(b.full_name||'','it'));if(selected&&!workers.some(p=>p.id===selected))selected='';renderWorkers();loaded=true;return load();}};
 }
 
+
+

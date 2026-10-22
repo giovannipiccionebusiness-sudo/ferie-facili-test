@@ -16,3 +16,5 @@ export function cleanPaper({data,width,height}){
  }
  return {data:out,width,height};
 }
+
+

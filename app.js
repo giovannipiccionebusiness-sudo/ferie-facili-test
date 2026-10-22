@@ -1,6 +1,9 @@
-import {createWorkerArchive} from './archive.js?v=19';
-import {createAutoArchiveScanner} from './auto-scan.js?v=19';
-import {saveUploadDraft,readUploadDraft,deleteUploadDraft} from './upload-draft.js?v=9';
+import {revealWorkerTarget,refreshWorkerMenu,resetWorkerMenu} from './worker-menu.js?v=30';
+import {appConfirm} from './app-dialog.js?v=30';
+import {createMultiPageCapture} from './multipage.js?v=30';
+import {createWorkerArchive} from './archive.js?v=30';
+import {createAutoArchiveScanner} from './auto-scan.js?v=30';
+import {saveUploadDraft,readUploadDraft,deleteUploadDraft} from './upload-draft.js?v=30';
 import {createClient} from 'https://esm.sh/@supabase/supabase-js@2.49.10';
 import {SUPABASE_URL,SUPABASE_ANON_KEY} from './config.js';
 const $=id=>document.getElementById(id);
@@ -8,7 +11,7 @@ const configured=SUPABASE_URL.startsWith('https://')&&SUPABASE_ANON_KEY.length>2
 let authClient=null,sb=null,profile=null,session=null,docs=[],people=[],missing=[];
 const safe=(s)=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const dateLabel=s=>new Date(s).toLocaleString('it-IT');
-const typeLabel={presenze:'Foglio presenze',ferie:'Ferie',rol:'ROL',legge104:'Legge 104',malattia:'Malattia'};
+const typeLabel={presenze:'Foglio presenze',ferie:'Ferie',rol:'ROL',legge104:'Legge 104',malattia:'Malattia',congedo_parentale:'Congedo parentale'};
 const stageLabel={weekly:'Aggiornamento settimanale',replacement:'Sostituzione settimanale',final:'Definitivo mensile',request:'Modulo firmato'};
 const statusLabel={pending:'In verifica',verified:'Documento verificato',rejected:'Documento respinto'};
 const isoLocalDate=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -57,14 +60,14 @@ function showUploadProgress(text,percent=null,completed=false,failed=false){
  uploadStatusPanel.setAttribute('aria-busy',String(!completed&&!failed));
 }
 
-function showLogged(on){if(!on||profile?.role!=='admin'||!profile?.active){archive.clear();automaticScans.clear();}$('authArea').classList.toggle('hidden',on);$('loggedArea').classList.toggle('hidden',!on);$('workerArea').classList.toggle('hidden',!on||!profile?.active||profile.role==='admin');$('adminArea').classList.toggle('hidden',!on||!profile?.active||profile.role!=='admin')}
+function showLogged(on){if(!on)resetWorkerMenu();if(!on||profile?.role!=='admin'||!profile?.active){archive.clear();automaticScans.clear();multiPage.clear();}$('authArea').classList.toggle('hidden',on);$('loggedArea').classList.toggle('hidden',!on);$('workerArea').classList.toggle('hidden',!on||!profile?.active||profile.role==='admin');$('adminArea').classList.toggle('hidden',!on||!profile?.active||profile.role!=='admin')}
 async function boot(){if(!configured){$('setupAlert').textContent='Configurazione mancante: apri INSTALLAZIONE.md. I documenti NON vengono inviati.';showLogged(false);$('loginBtn').disabled=true;$('signupBtn').disabled=true;return}
  authClient=createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{auth:{persistSession:true,autoRefreshToken:true}});
  sb=createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{accessToken:async()=>session?.access_token??null,global:{fetch:async(input,init={})=>{const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),String(input?.url||input).includes('/storage/v1/')?120000:20000);try{return await fetchWithUploadProgress(input,{...init,signal:controller.signal})}finally{clearTimeout(timer)}}}});$('setupAlert').classList.add('hidden');
  authClient.auth.onAuthStateChange((event,s)=>{session=s;if(event==='SIGNED_OUT'){profile=null;showLogged(false);msg('Accesso terminato.')}});
  const {data,error}=await authClient.auth.getSession();if(error)throw error;session=data.session;await reloadAccount();
 }
-async function reloadAccount(){profile=null;if(session){const {data,error}=await sb.from('profiles').select('*').eq('id',session.user.id).single();if(error){err(error);showLogged(false);return}profile=data;$('accountName').textContent=profile.full_name||session.user.email;$('accountInfo').textContent=profile.active?(profile.role==='admin'?'Amministratore':profile.site||'Sede da assegnare'):'In attesa di abilitazione';}showLogged(!!session);if(!session){msg('Accedi o richiedi la registrazione.');return}if(!profile.active){msg('Registrazione ricevuta. L’amministratore deve abilitare il tuo account.');return}msg('Accesso effettuato.');if(profile.role==='admin')await refreshAdmin();else {await restoreUploadState();}}
+async function reloadAccount(){profile=null;if(session){const {data,error}=await sb.from('profiles').select('*').eq('id',session.user.id).single();if(error){err(error);showLogged(false);return}profile=data;$('accountName').textContent=profile.full_name||session.user.email;$('accountInfo').textContent=profile.active?(profile.role==='admin'?'Amministratore':({N153:"Corte d’Appello",N148:'ENAV'}[profile.site]||profile.site||'Sede da assegnare')):'In attesa di abilitazione';}showLogged(!!session);if(!session){msg('Accedi o richiedi la registrazione.');return}if(!profile.active){msg('Registrazione ricevuta. L’amministratore deve abilitare il tuo account.');return}msg('Accesso effettuato.');if(profile.role==='admin')await refreshAdmin();else {await restoreUploadState();}}
 $('loginBtn').onclick=async()=>{
  const b=$('loginBtn');if(!sb){msg('Connessione in preparazione. Riprova tra qualche secondo.');return}
  const email=$('email').value.trim(),password=$('password').value;
@@ -157,7 +160,7 @@ async function restoreUploadState(){
   try{selectedUpload=validateUploadSelection(saved.stage);}catch{selectedUpload=null;}
   showCameraRetry(saved);
  }
- if(pendingDraft){showDocuments();renderUploadRecovery();}
+ if(pendingDraft){showDocuments();renderUploadRecovery();}else await multiPage.restore(session.user.id);
 }
 const uploadButtons=['updateSheet','replaceSheet','finalSheet','uploadOther'];
 function validateUploadSelection(a){
@@ -172,29 +175,33 @@ function validateUploadSelection(a){
  if(a==='replacement'&&!recent.length)throw new Error('Nessun foglio per questa settimana da sostituire. Usa Aggiorna foglio presenze.');
  return Object.freeze({stage:a,month,week,category:a==='request'?$('docType').value:'presenze',replaces:a==='replacement'?recent[0].id:null,note:a==='request'?$('docNote').value.trim():'',worker_id:session.user.id,site:profile.site});
 }
-function pick(a){
+async function pick(a){
  if(uploading)return;
  if(pendingDraft){showDocuments();renderUploadRecovery();msg('Riprendi o elimina la foto già pronta prima di sceglierne un’altra.');return;}
  try{
-  const selected=validateUploadSelection(a);
-  if(a==='final'&&selected.month>=monthNow()&&!confirm('Il mese selezionato è ancora in corso. Il foglio definitivo deve comprendere tutti i giorni del mese. Continuare?'))return;
-  if(a==='final'&&!confirm('Confermi che il foglio è completo per TUTTO il mese e firmato a mano?'))return;
+  const selected=validateUploadSelection(a);revealWorkerTarget(a==='request'?$('docType'):$('updateSheet'));
+  if(a==='final'&&selected.month>=monthNow()&&!await appConfirm('Il mese selezionato è ancora in corso. Il foglio definitivo deve comprendere tutti i giorni del mese. Continuare?'))return;
+  if(a==='final'&&!await appConfirm('Confermi che il foglio è completo per TUTTO il mese e firmato a mano?'))return;
+  if(selected.category==='congedo_parentale'){clearCameraRetry();clearCameraSelection();showDocuments();multiPage.open(selected).catch(err);return;}
   clearCameraRetry();selectedUpload=selected;rememberCameraSelection(selected);showDocuments();$('docPicker').value='';$('docPicker').click();
  }catch(e){err(e);$('appMsg').scrollIntoView({behavior:'smooth',block:'center'});}
 }
 $('updateSheet').onclick=()=>pick('weekly');$('replaceSheet').onclick=()=>pick('replacement');$('finalSheet').onclick=()=>pick('final');$('uploadOther').onclick=()=>pick('request');
+$('docType').addEventListener('change',()=>{
+ if($('docType').value==='congedo_parentale')pick('request');
+ else multiPage.close();
+});
 function weekEnding(){const d=new Date(),f=new Date(d);f.setDate(d.getDate()+((5-d.getDay()+7)%7));return isoLocalDate(f);}
 
 $('docPicker').onchange=async()=>{
- // Capture the browser's File immediately, even when Auth is still restoring after a reload.
  const file=$('docPicker').files?.[0];if(!file){checkCameraReturn();return;}
- clearCameraRetry();
- await appReady;
- const selected=selectedUpload;
- if(!selected||uploading)return;
+ clearCameraRetry();await appReady;const selected=selectedUpload;if(!selected||uploading)return;
+ try{await acceptUploadFile(file,selected);}catch(e){err(e);}
+};
+async function acceptUploadFile(file,selected){
  const allowed=['image/jpeg','image/png','image/webp','application/pdf'];
- if(!allowed.includes(file.type)||file.size>12*1024*1024){err(new Error('Sono accettati JPEG, PNG, WebP e PDF fino a 12 MB.'));$('appMsg').scrollIntoView({behavior:'smooth',block:'center'});return;}
- if(session?.user?.id!==selected.worker_id||!profile?.active){err(new Error('Account cambiato: seleziona nuovamente il documento.'));return;}
+ if(!allowed.includes(file.type)||file.size>12*1024*1024)throw new Error('Sono accettati JPEG, PNG, WebP e PDF fino a 12 MB.');
+ if(session?.user?.id!==selected.worker_id||!profile?.active)throw new Error('Account cambiato: seleziona nuovamente il documento.');
  const id=crypto.randomUUID(),ext=file.type==='application/pdf'?'pdf':file.type.split('/')[1],path=selected.worker_id+'/'+selected.month+'/'+id+'.'+ext;
  const payload={id,worker_id:selected.worker_id,site:selected.site,month:selected.month,category:selected.category,stage:selected.stage,week_ending:selected.week,replaces:selected.replaces,file_path:path,file_name:file.name,note:selected.note,authorization:['ferie','rol'].includes(selected.category)?'pending':'not_applicable'};
  pendingDraft={worker_id:selected.worker_id,id,path,payload,file};
@@ -204,7 +211,8 @@ $('docPicker').onchange=async()=>{
  await saveUploadDraft(pendingDraft).catch(()=>{});
  clearCameraSelection();
  await sendUploadDraft(pendingDraft);
-};
+}
+
 async function sendUploadDraft(draft){
  if(!draft||uploading||session?.user?.id!==draft.worker_id||!profile?.active)return;
  uploading=true;uploadButtons.forEach(id=>$(id).disabled=true);
@@ -231,7 +239,7 @@ async function sendUploadDraft(draft){
   await deleteUploadDraft(draft.worker_id).catch(()=>{});
   pendingDraft=null;clearCameraSelection();renderUploadRecovery();
   showUploadProgress('✓ Documento caricato correttamente · 100%',100,true);
-  msg('Documento inviato correttamente. In attesa di verifica del responsabile.');await refreshWorker();
+  msg('Documento inviato correttamente. In attesa di verifica del responsabile.');await refreshWorker();revealWorkerTarget($('docList'));
  }catch(e){
   showUploadProgress('Invio non completato. Premi Riprendi invio.',null,false,true);renderUploadRecovery();err(e);$('appMsg').scrollIntoView({behavior:'smooth',block:'center'});
  }finally{uploadProgressListener=null;uploading=false;uploadButtons.forEach(id=>$(id).disabled=false);}
@@ -250,7 +258,7 @@ async function openFile(d){
 async function refreshWorker(){if(!profile?.active||profile.role==='admin')return;const {data,error}=await sb.from('documents').select('*').eq('worker_id',session.user.id).eq('month',$('month').value).order('created_at',{ascending:false});if(error){err(error);return}docs=data||[];const area=$('docList');area.replaceChildren();if(!docs.length)area.textContent='Nessun documento per questo mese.';
  for(const d of docs){const row=node('div',null,'doc-row'),left=node('div');left.append(node('strong',`${typeLabel[d.category]} · ${stageLabel[d.stage]}`),node('small',`${dateLabel(d.created_at)} · ${statusLabel[d.review_status]}`));if(d.review_reason)left.append(node('small','Motivo: '+d.review_reason));if(d.authorization==='approved')left.append(node('small','Richiesta autorizzata'));if(d.authorization==='denied')left.append(node('small','Richiesta non autorizzata'));row.append(left,button('Apri',()=>openFile(d),true));area.append(row)}
  const weeks=docs.filter(d=>['weekly','replacement'].includes(d.stage));const finals=docs.filter(d=>d.stage==='final');$('weeklySummary').textContent=`${weeks.length} caricamenti settimanali · ${finals.length? 'Foglio definitivo: '+statusLabel[finals[0].review_status]:'Foglio definitivo non ancora verificato'}`;
- const {data:notes}=await sb.from('notifications').select('*').eq('worker_id',session.user.id).order('created_at',{ascending:false}).limit(30);const n=$('myNotifications');n.replaceChildren();if(!notes?.length)n.textContent='Nessun messaggio.';for(const t of notes||[]){const row=node('div',null,'doc-row'),left=node('div');left.append(node('strong',t.message),node('small',dateLabel(t.created_at)));row.append(left);if(!t.read_at)row.append(button('Letto',async()=>{await sb.rpc('mark_notification_read',{p_id:t.id});await refreshWorker()},true));n.append(row)}}
+ const {data:notes}=await sb.from('notifications').select('*').eq('worker_id',session.user.id).order('created_at',{ascending:false}).limit(30);const n=$('myNotifications');n.replaceChildren();if(!notes?.length)n.textContent='Nessun messaggio.';for(const t of notes||[]){const row=node('div',null,'doc-row'),left=node('div');left.append(node('strong',t.message),node('small',dateLabel(t.created_at)));row.append(left);if(!t.read_at)row.append(button('Letto',async()=>{await sb.rpc('mark_notification_read',{p_id:t.id});await refreshWorker()},true));n.append(row)}refreshWorkerMenu(docs,notes||[]);}
 $('adminSite').onchange=()=>refreshAdmin();$('adminMonth').onchange=()=>refreshAdmin();$('refreshAdmin').onclick=()=>refreshAdmin();
 async function refreshAdmin(){if(profile?.role!=='admin')return;const [p,d]=await Promise.all([sb.from('profiles').select('*').order('full_name'),sb.from('documents').select('*').eq('month',$('adminMonth').value).order('created_at',{ascending:false})]);if(p.error||d.error){err(p.error||d.error);return}people=p.data||[];docs=(d.data||[]).filter(x=>!$('adminSite').value||x.site===$('adminSite').value);const active=people.filter(x=>x.active&&x.role==='worker'&&(!$('adminSite').value||x.site===$('adminSite').value));$('adminStats').textContent=`${active.length} lavoratori attivi · ${docs.length} caricamenti nel mese · ${docs.filter(x=>x.review_status==='pending').length} da verificare`;
  const pend=$('pendingDocs'),done=$('reviewedDocs');pend.replaceChildren();done.replaceChildren();for(const d of docs.filter(d=>!docs.some(x=>x.replaces===d.id))){const person=people.find(x=>x.id===d.worker_id),target=d.review_status==='pending'?pend:done,row=node('div',null,'doc-row'),left=node('div');left.append(node('strong',`${person?.full_name||'Lavoratore'} · ${typeLabel[d.category]}`),node('small',`${stageLabel[d.stage]} · ${dateLabel(d.created_at)} · ${statusLabel[d.review_status]}`));if(d.review_reason)left.append(node('small',d.review_reason));row.append(left);const controls=node('div',null,'doc-toolbar');controls.append(button('Apri',()=>openFile(d),true));if(d.review_status==='pending'){controls.append(button('Verifica',()=>review(d,'verified')),button('Respingi',()=>review(d,'rejected'),true))}else if(d.review_status==='verified'&&['ferie','rol'].includes(d.category)&&d.authorization==='pending'){controls.append(button('Autorizza',()=>authorize(d,'approved')),button('Non autorizzare',()=>authorize(d,'denied'),true))}row.append(controls);target.append(row)}if(!pend.childNodes.length)pend.textContent='Nessun documento da verificare.';if(!done.childNodes.length)done.textContent='Nessun documento verificato o respinto.';
@@ -263,9 +271,10 @@ function documentMessage(d,event,status,reason=''){
   ferie:'La richiesta di ferie è stata visionata dal responsabile. È in attesa di autorizzazione.',
   rol:'La richiesta di permessi ROL è stata visionata dal responsabile. È in attesa di autorizzazione.',
   legge104:'La comunicazione dei giorni di legge 104 è stata visionata dal responsabile.',
-  malattia:'La comunicazione dei giorni di malattia è stata visionata dal responsabile.'
+  malattia:'La comunicazione dei giorni di malattia è stata visionata dal responsabile.',
+  congedo_parentale:'La richiesta di congedo parentale è stata visionata dal responsabile.'
  };
- const names={presenze:'Il foglio presenze',ferie:'La richiesta di ferie',rol:'La richiesta di permessi ROL',legge104:'La comunicazione dei giorni di legge 104',malattia:'La comunicazione dei giorni di malattia'};
+ const names={presenze:'Il foglio presenze',ferie:'La richiesta di ferie',rol:'La richiesta di permessi ROL',legge104:'La comunicazione dei giorni di legge 104',malattia:'La comunicazione dei giorni di malattia',congedo_parentale:'La richiesta di congedo parentale'};
  let text;
  if(event==='authorization'){
   const name=d.category==='ferie'?'Le ferie richieste':'I permessi ROL richiesti';
@@ -295,7 +304,7 @@ async function authorize(d,status){if(!confirm(status==='approved'?'Autorizzare 
 $('findMissing').onclick=async()=>{const week=$('weekDate').value,site=$('adminSite').value;if(!week){msg('Seleziona un venerdì.');return}if(new Date(week+'T12:00:00').getDay()!==5){msg('Seleziona una data che sia venerdì.');return}const first=new Date(week+'T12:00:00');first.setDate(first.getDate()-6);const start=isoLocalDate(first);const {data,error}=await sb.from('documents').select('worker_id,week_ending,created_at,stage,review_status').in('stage',['weekly','replacement']).eq('week_ending',week);if(error){err(error);return}const delivered=new Set((data||[]).filter(x=>x.review_status!=='rejected').map(x=>x.worker_id));missing=people.filter(p=>p.active&&p.role==='worker'&&p.site&&(!site||p.site===site)&&!delivered.has(p.id));const area=$('missingList');area.replaceChildren();if(!missing.length){area.textContent='Tutti hanno consegnato per la settimana selezionata.';return}for(const p of missing){const row=node('label',null,'doc-row'),cb=document.createElement('input');cb.type='checkbox';cb.checked=true;cb.style.width='auto';cb.dataset.uid=p.id;row.append(cb,node('span',`${p.full_name} · ${p.site}`));area.append(row)}msg(`${missing.length} lavoratori senza consegna per il venerdì selezionato.`)};
 function selectedMissing(){return missing.filter(p=>document.querySelector(`#missingList input[data-uid="${p.id}"]`)?.checked)}
 $('sendReminders').onclick=async()=>{const sel=selectedMissing(),week=$('weekDate').value;if(!sel.length){msg('Nessun lavoratore selezionato.');return}if(!confirm(`Inviare ${sel.length} solleciti nell'app?`))return;let sent=0,duplicates=0;for(const p of sel){const r=await addNotification(p.id,'reminder',`Non risulta consegnato il foglio presenze della settimana con venerdì ${week}. Carica il foglio cartaceo compilato e firmato.`,week);if(r.error){if(r.error.code==='23505')duplicates++;else err(r.error)}else sent++}msg(`${sent} notifiche nell'app registrate; ${duplicates} solleciti già presenti.`)};
-$('whatsappReminders').onclick=()=>{const sel=selectedMissing();if(!sel.length){msg('Nessun lavoratore selezionato.');return}const without=sel.filter(x=>!x.phone);if(without.length){msg('Numeri WhatsApp mancanti per: '+without.map(x=>x.full_name).join(', ')+'. Inseriscili in Supabase nella tabella profiles, colonna phone.');return}if(!confirm(`Aprire WhatsApp per ${sel.length} lavoratori? Dovrai premere Invia in ogni conversazione.`))return;for(const p of sel){const phone=p.phone.replace(/[^0-9]/g,'');const t=`Buongiorno ${p.full_name}, non risulta ancora caricato il foglio presenze settimanale compilato e firmato. Ti invito a provvedere tramite Ferie Facili. Grazie.`;window.open(`https://wa.me/${phone}?text=${encodeURIComponent(t)}`,'_blank','noopener,noreferrer')}msg('WhatsApp aperto: l’invio effettivo deve essere confermato manualmente. Il browser potrebbe bloccare più schede.')};
+$('whatsappReminders').onclick=()=>{const sel=selectedMissing();if(!sel.length){msg('Nessun lavoratore selezionato.');return}const without=sel.filter(x=>!x.phone);if(without.length){msg('Numeri WhatsApp mancanti per: '+without.map(x=>x.full_name).join(', ')+'. Inseriscili in Supabase nella tabella profiles, colonna phone.');return}if(!confirm(`Aprire WhatsApp per ${sel.length} lavoratori? Dovrai premere Invia in ogni conversazione.`))return;for(const p of sel){const phone=p.phone.replace(/[^0-9]/g,'');const t=`Buongiorno ${p.full_name}, non risulta ancora caricato il foglio presenze settimanale compilato e firmato. Ti invito a provvedere tramite Lavoro Facile. Grazie.`;window.open(`https://wa.me/${phone}?text=${encodeURIComponent(t)}`,'_blank','noopener,noreferrer')}msg('WhatsApp aperto: l’invio effettivo deve essere confermato manualmente. Il browser potrebbe bloccare più schede.')};
 $('tabDocs').addEventListener('click',()=>{if(profile?.role==='admin')refreshAdmin();else if(profile?.active)refreshWorker()});
 const baseRefreshAdmin=refreshAdmin;
 refreshAdmin=async function(){
@@ -333,7 +342,7 @@ refreshAdmin=async function(){
  if(!log.childNodes.length)log.textContent='Nessuna operazione registrata.';
 };
 
-/* Drive TEST: all OAuth secrets and Google tokens stay in the backend. */
+/* Drive archive: all OAuth secrets and Google tokens stay in the backend. */
 let drivePanel;
 async function driveCall(action,extra={}){
  const {data,error}=await authClient.auth.getSession();if(error)throw error;
@@ -348,7 +357,7 @@ async function driveCall(action,extra={}){
 async function refreshDrive(){
  if(profile?.role!=='admin'||!profile.active)return;
  if(!drivePanel){drivePanel=node('section');drivePanel.style.cssText='padding:18px;margin:16px 0;border:1px solid #ddd;border-radius:16px';$('adminOperations').prepend(drivePanel);}
- drivePanel.replaceChildren(node('h3','Archivio Google Drive · TEST'));
+ drivePanel.replaceChildren(node('h3','Archivio Google Drive'));
  const summary=node('p','Verifica del collegamento…'),controls=node('div',null,'doc-toolbar'),list=node('div');drivePanel.append(summary,controls,list);
  try{
   const result=await driveCall('status');
@@ -375,7 +384,7 @@ async function refreshDrive(){
    if(j.status==='retry'||j.status==='failed')row.append(button('Riprova',async()=>{try{await driveCall('retry',{document_id:j.document_id});await refreshDrive()}catch(e){err(e)}},true));
    list.append(row);
   }
-  if(!result.jobs?.length)list.textContent='Nessun documento in archivio. Per le prove usa esclusivamente documenti fittizi.';
+  if(!result.jobs?.length)list.textContent='Nessun documento ancora presente nell’archivio.';
   if((result.jobs||[]).length===200)list.append(node('small','Visualizzati i 200 caricamenti più recenti.'));
   compactList(list,'Documenti archiviati su Drive',{replaceHeading:false});
  }catch(e){summary.textContent='Impossibile aggiornare l’archivio: '+e.message;}
@@ -424,16 +433,28 @@ refreshAdmin=async function(){
  compactList($('auditList'),'Storico delle operazioni');
  compactList($('pendingDocs'),'Documenti da verificare',{collapsible:false});
 };
+async function documentScanStatus(document_id){
+ const {data,error}=await authClient.auth.getSession();if(error||!data.session)throw Error('Accedi nuovamente.');
+ const r=await fetch(SUPABASE_URL+'/functions/v1/document-scan-archive',{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_ANON_KEY,'Authorization':'Bearer '+data.session.access_token},body:JSON.stringify({document_id})});const result=await r.json();if(!r.ok)throw Error(result.error||'Archivio scansione non disponibile.');return result;
+}
 async function monthlyStatus(action,document_id){
  const {data,error}=await authClient.auth.getSession();if(error||!data.session)throw Error('Accedi nuovamente.');
  const r=await fetch(SUPABASE_URL+'/functions/v1/monthly-presence-archive',{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_ANON_KEY,'Authorization':'Bearer '+data.session.access_token},body:JSON.stringify({action,document_id})});
  const result=await r.json();if(!r.ok)throw Error(result.error||'Chiusura mensile non disponibile.');return result;
 }
 const adminAllowed=()=>!!session&&profile?.role==='admin'&&profile.active;
-const automaticScans=createAutoArchiveScanner({client:()=>sb,allowed:adminAllowed,openOriginal:openFile,monthlyStatus,onMonthClosed:()=>refreshAdmin().then(()=>$('archiveRefresh').click()).catch(err)});
+const automaticScans=createAutoArchiveScanner({client:()=>sb,allowed:adminAllowed,openOriginal:openFile,monthlyStatus,documentScanStatus,onMonthClosed:()=>refreshAdmin().then(()=>$('archiveRefresh').click()).catch(err)});
 const archive=createWorkerArchive({client:()=>sb,allowed:adminAllowed,openFile,typeLabel,stageLabel,statusLabel,renderScan:automaticScans.render,onReset:automaticScans.clear,reviewDocument:review});
 const refreshAdminArchive=refreshAdmin;
 refreshAdmin=async function(){await refreshAdminArchive();if(adminAllowed())await archive.setWorkers(people);};
+const multiPage=createMultiPageCapture({allowed:worker=>!!session&&session.user.id===worker&&profile?.active&&profile.role==='worker',onSubmit:async(file,selected)=>{if(pendingDraft){renderUploadRecovery();throw Error('Riprendi o elimina prima l’invio già pronto.');}await acceptUploadFile(file,{...selected,note:$('docNote').value.trim()});if(pendingDraft)throw Error('Riprendi l’invio dal riquadro di recupero.');}});
 const appReady=boot().catch(err);
+
+
+
+
+
+
+
 
 

@@ -1,7 +1,7 @@
 {
-  "name": "Ferie Facili — TEST",
-  "short_name": "Ferie TEST",
-  "description": "Versione di prova — presenze e documenti riservati",
+  "name": "Lavoro Facile TEST",
+  "short_name": "LF TEST",
+  "description": "Presenze, richieste e documenti dei lavoratori, con calcolatore ferie e permessi.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
@@ -22,5 +22,11 @@
       "purpose": "any"
     }
   ],
-  "id": "./"
+  "related_applications": [
+    {
+      "platform": "webapp",
+      "url": "https://giovannipiccionebusiness-sudo.github.io/ferie-facili-test/manifest.webmanifest"
+    }
+  ],
+  "prefer_related_applications": false
 }

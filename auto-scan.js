@@ -1,6 +1,7 @@
-import {cleanPaper} from './paper-clean.js?v=19';
-import {edgePaper} from './edge-crop.js?v=19';
-import {detectPaper,warpImage} from './scanner-core.js?v=19';
+import {scanPDF} from './pdf-scan.js?v=30';
+import {cleanPaper} from './paper-clean.js?v=30';
+import {edgePaper} from './edge-crop.js?v=30';
+import {detectPaper,warpImage} from './scanner-core.js?v=30';
 // Colour-preserving deterministic processing. No generated text or OCR.
 export async function autoScanPhoto(blob){
  let image;const url=URL.createObjectURL(blob);
@@ -19,7 +20,7 @@ export async function autoScanPhoto(blob){
   const file=await new Promise(r=>page.toBlob(r,'image/jpeg',.93));if(!file)throw Error('Impossibile preparare la scansione.');return {file,cropped,width:page.width,height:page.height};
  }finally{image?.close?.();URL.revokeObjectURL(url);}
 }
-export function createAutoArchiveScanner({client,allowed,openOriginal,monthlyStatus,onMonthClosed=()=>{}}){
+export function createAutoArchiveScanner({client,allowed,openOriginal,monthlyStatus,documentScanStatus,onMonthClosed=()=>{}}){
  let queue=Promise.resolve(),epoch=0;const jobs=new Map(),urls=new Set(),timers=new Set(),closedSeen=new Set();
  const node=(tag,text)=>{const n=document.createElement(tag);if(text)n.textContent=text;return n;};
  function clear(){epoch++;for(const t of timers)clearTimeout(t);timers.clear();jobs.clear();for(const url of urls)URL.revokeObjectURL(url);urls.clear();document.querySelectorAll('.auto-scan-image').forEach(i=>i.removeAttribute('src'));document.querySelectorAll('.auto-scan-dialog').forEach(d=>{d.close();d.remove();});}
@@ -29,7 +30,7 @@ export function createAutoArchiveScanner({client,allowed,openOriginal,monthlySta
   const original=node('button','Apri originale');original.className='doc-link';original.type='button';original.onclick=()=>{if(allowed())openOriginal(d);};
   if(d.category==='presenze'&&d.stage!=='final'){box.append(node('small','Aggiornamento settimanale: si conserva solo l’originale fino alla chiusura mensile.'),original);return;}
   const monthly=d.category==='presenze'&&d.stage==='final',pdf=/\.pdf$/i.test(d.file_path||d.file_name);
-  if(!/\.(jpe?g|png|webp)$/i.test(d.file_path||d.file_name)&&!(monthly&&pdf)){box.append(node('small','PDF originale: nessuna elaborazione automatica.'),original);return;}
+  if(!/\.(jpe?g|png|webp)$/i.test(d.file_path||d.file_name)&&!pdf){box.append(node('small','Formato non elaborabile: originale conservato.'),original);return;}
   const state=node('small','In attesa della scansione automatica…');box.append(state,original);const generation=epoch;
   function current(){return generation===epoch&&allowed()&&box.isConnected;}
   async function obtain(){
@@ -37,12 +38,12 @@ export function createAutoArchiveScanner({client,allowed,openOriginal,monthlySta
    const db=client();if(monthly){const latest=await db.from('documents').select('id').eq('worker_id',d.worker_id).eq('month',d.month).eq('category','presenze').eq('stage','final').order('created_at',{ascending:false}).order('id',{ascending:false}).limit(1);if(latest.error)throw latest.error;if(latest.data?.[0]?.id!==d.id)return {skip:true};}
    const r=await db.from('test_document_scans').select('*').eq('document_id',d.id).maybeSingle();if(r.error)throw r.error;
    if(!current())return null;
-   let row=r.data?.source_path===d.file_path&&r.data.algorithm_version===4?r.data:null,blob;
+   let row=r.data?.source_path===d.file_path&&r.data.algorithm_version===(monthly&&!pdf?4:5)?r.data:null,blob;
    if(row){const saved=await db.storage.from('document-scans-test').download(row.file_path);if(!saved.error)blob=saved.data;}
    if(!blob){state.textContent='Ritaglio e miglioramento automatici in corso…';const src=await db.storage.from('private-documents').download(d.file_path);if(src.error)throw src.error;if(!current())return null;
-    const result=pdf?{file:src.data,cropped:false}:await autoScanPhoto(src.data);if(!current())return null;blob=result.file;
+    const result=pdf?await scanPDF(src.data,autoScanPhoto,(n,total)=>{state.textContent=`Ritaglio e miglioramento pagina ${n} di ${total}…`;}):await autoScanPhoto(src.data);if(!current())return null;blob=result.file;
     const path=d.id+(pdf?'/auto-v3.pdf':'/auto-v3.jpg'),upload=await db.storage.from('document-scans-test').upload(path,blob,{contentType:pdf?'application/pdf':'image/jpeg',upsert:true});if(upload.error)throw upload.error;if(!current())return null;
-    row={document_id:d.id,source_path:d.file_path,file_path:path,cropped:result.cropped,algorithm_version:4};const save=await db.from('test_document_scans').upsert(row,{onConflict:'document_id'});if(save.error)throw save.error;
+    row={document_id:d.id,source_path:d.file_path,file_path:path,cropped:result.cropped,algorithm_version:monthly&&!pdf?4:5};const save=await db.from('test_document_scans').upsert(row,{onConflict:'document_id'});if(save.error)throw save.error;
    }
    if(!current())return null;const url=URL.createObjectURL(blob);urls.add(url);return {url,cropped:row.cropped,pdf};
   }
@@ -50,10 +51,11 @@ export function createAutoArchiveScanner({client,allowed,openOriginal,monthlySta
    let job=jobs.get(d.id);if(!job){job=queue.then(obtain);jobs.set(d.id,job);queue=job.catch(()=>{});}
    job.then(result=>{if(!current())return;if(!result){jobs.delete(d.id);start();return;}
     if(result.skip){state.textContent='Definitivo precedente: viene scansionato solo l’ultimo mensile completo.';return;}
-    state.textContent=result.pdf?'PDF mensile già pronto · originale conservato':result.cropped?'Ritagliata e migliorata automaticamente · originale conservato':'Foto intera migliorata: bordi incerti, nessun ritaglio automatico.';
+    state.textContent=result.pdf?'PDF elaborato pagina per pagina · originale conservato':result.cropped?'Ritagliata e migliorata automaticamente · originale conservato':'Foto intera migliorata: bordi incerti, nessun ritaglio automatico.';
     const img=node('img');img.className='auto-scan-image';img.src=result.url;img.alt=result.cropped?'Foto ritagliata e migliorata':'Foto intera migliorata, ritaglio non applicato';img.loading='lazy';
     const open=node('button','Apri scansione');open.type='button';open.className='doc-link';open.onclick=()=>preview(result.url,d);if(!result.pdf)box.prepend(img);box.append(open);
     if(result.pdf)open.onclick=()=>{if(allowed())window.location.assign(result.url);};
+    if(!monthly&&documentScanStatus){const line=node('small','Scansione in attesa di archiviazione su Drive.');box.append(line);const poll=async()=>{if(!current())return;try{const r=await documentScanStatus(d.id);if(!current())return;if(r.job?.status==='done'){line.textContent='Originale e scansione verificati su Drive.';return;}line.textContent=r.job?.last_error?'Archiviazione da riprovare: '+r.job.last_error:'Archiviazione della scansione su Drive in corso…';}catch(e){if(!current())return;line.textContent='Scansione conservata nell’app. Drive in attesa: '+e.message;}const timer=setTimeout(()=>{timers.delete(timer);poll();},10000);timers.add(timer);};poll();}
     if(monthly&&monthlyStatus){const line=node('small','Originale e scansione in attesa di verifica su Drive. I settimanali restano conservati.');box.append(line);let first=true;const poll=async()=>{if(!current())return;try{const r=await monthlyStatus(first?'enqueue':'status',d.id);first=false;if(!current())return;const c=r.closure;if(c?.status==='done'){line.textContent='Originale e scansione verificati su Drive · settimanali precedenti eliminati.';if(!closedSeen.has(d.id)){closedSeen.add(d.id);onMonthClosed();}return;}line.textContent=c?.last_error?'Chiusura non completata: '+c.last_error:'Archiviazione mensile in corso. I settimanali saranno rimossi dopo le verifiche.';}catch(e){if(!current())return;line.textContent='Chiusura mensile in attesa: '+e.message;}const timer=setTimeout(()=>{timers.delete(timer);poll();},10000);timers.add(timer);};poll();}
    }).catch(e=>{jobs.delete(d.id);if(!current())return;state.textContent='Scansione non disponibile. Originale conservato. '+(e.message||'');const retry=node('button','Riprova scansione');retry.type='button';retry.className='doc-link';retry.onclick=()=>{retry.remove();start();};box.append(retry);});
   }
@@ -62,4 +64,7 @@ export function createAutoArchiveScanner({client,allowed,openOriginal,monthlySta
  }
  return {render,clear};
 }
+
+
+
 
