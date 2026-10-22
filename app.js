@@ -1,4 +1,4 @@
-import {refreshAdminMenu} from './admin-menu.js?v=31';
+import {refreshAdminMenu} from './admin-menu.js?v=32';
 import {revealWorkerTarget,refreshWorkerMenu,resetWorkerMenu} from './worker-menu.js?v=30';
 import {appConfirm} from './app-dialog.js?v=30';
 import {createMultiPageCapture} from './multipage.js?v=30';
