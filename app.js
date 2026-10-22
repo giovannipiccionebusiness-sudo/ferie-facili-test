@@ -1,4 +1,4 @@
-import {refreshAdminMenu} from './admin-menu.js?v=32';
+import {refreshAdminMenu} from './admin-menu.js?v=34';
 import {revealWorkerTarget,refreshWorkerMenu,resetWorkerMenu} from './worker-menu.js?v=30';
 import {appConfirm} from './app-dialog.js?v=30';
 import {createMultiPageCapture} from './multipage.js?v=30';
@@ -84,6 +84,16 @@ $('loginBtn').onclick=async()=>{
  }catch(e){err(e)}finally{b.disabled=false;b.textContent='Accedi'}
 };
 $('signupBtn').onclick=async()=>{const email=$('email').value.trim(),password=$('password').value;if(!email||password.length<8){msg('Inserisci email e password di almeno 8 caratteri.');return}const full_name=prompt('Inserisci nome e cognome completi:');if(!full_name?.trim())return;const {error}=await authClient.auth.signUp({email,password,options:{data:{full_name:full_name.trim()}}});if(error)err(error);else msg('Registrazione richiesta. Controlla la tua email per confermarla, poi attendi l’abilitazione.')};
+function missingSession(error){return error?.name==='AuthSessionMissingError'||/auth session missing/i.test(error?.message||'');}
+function finishLogout(message='Accesso terminato.'){
+  session=null;profile=null;docs=[];people=[];missing=[];selectedUpload=null;
+  clearCameraSelection();clearCameraRetry();pendingDraft=null;recoveryPanel?.remove();recoveryPanel=null;
+  uploadStatusPanel?.remove();uploadStatusPanel=null;uploadBar=null;uploadStatusText=null;
+  $('password').value='';$('accountName').textContent='';$('accountInfo').textContent='';
+  for(const id of ['pendingDocs','reviewedDocs','pendingUsers','auditList','deliveryList','docList','myNotifications','adminMobileReviews','adminMobileAuthorizations'])$(id)?.replaceChildren();
+  showLogged(false);msg(message);$('authArea').scrollIntoView({behavior:'smooth',block:'center'});
+
+}
 let signingOut=false;
 $('logoutBtn').onclick=async()=>{
  if(signingOut)return;
@@ -96,13 +106,8 @@ $('logoutBtn').onclick=async()=>{
   // Draft storage must never prevent Auth from signing out (IndexedDB can be blocked).
   if(worker)deleteUploadDraft(worker).catch(()=>{});
   const result=await Promise.race([authClient.auth.signOut({scope:'local'}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Disconnessione non completata. Controlla la connessione e riprova.')),10000);})]);
-  if(result?.error)throw result.error;
-  session=null;profile=null;docs=[];people=[];missing=[];selectedUpload=null;
-  clearCameraSelection();clearCameraRetry();pendingDraft=null;recoveryPanel?.remove();recoveryPanel=null;
-  uploadStatusPanel?.remove();uploadStatusPanel=null;uploadBar=null;uploadStatusText=null;
-  $('password').value='';$('accountName').textContent='';$('accountInfo').textContent='';
-  for(const id of ['pendingDocs','reviewedDocs','pendingUsers','auditList','deliveryList','docList','myNotifications','adminMobileReviews','adminMobileAuthorizations'])$(id)?.replaceChildren();
-  showLogged(false);msg('Accesso terminato.');$('authArea').scrollIntoView({behavior:'smooth',block:'center'});
+  if(result?.error&&!missingSession(result.error))throw result.error;
+  finishLogout();
  }catch(e){err(e);}finally{clearTimeout(timer);signingOut=false;b.disabled=false;b.textContent='Esci';}
 };
 $('month').onchange=refreshWorker;
@@ -367,12 +372,12 @@ refreshAdmin=async function(){
 let drivePanel;
 async function driveCall(action,extra={}){
  const {data,error}=await authClient.auth.getSession();if(error)throw error;
- if(!data.session)throw new Error('Accedi nuovamente.');
+ if(!data.session){finishLogout('Sessione scaduta. Accedi nuovamente.');throw new Error('Sessione scaduta. Accedi nuovamente.');}
  const response=await fetch(SUPABASE_URL+'/functions/v1/drive-archive',{
   method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_ANON_KEY,'Authorization':'Bearer '+data.session.access_token},
   body:JSON.stringify({action,...extra})
  });
- const result=await response.json();if(!response.ok)throw new Error(result.error||'Archivio Drive non disponibile.');
+ const result=await response.json();if(response.status===401){finishLogout('Sessione scaduta. Accedi nuovamente.');throw new Error('Sessione scaduta. Accedi nuovamente.');}if(!response.ok)throw new Error(result.error||'Archivio Drive non disponibile.');
  return result;
 }
 async function refreshDrive(){
@@ -467,7 +472,7 @@ const adminAllowed=()=>!!session&&profile?.role==='admin'&&profile.active;
 const automaticScans=createAutoArchiveScanner({client:()=>sb,allowed:adminAllowed,openOriginal:openFile,monthlyStatus,documentScanStatus,onMonthClosed:()=>refreshAdmin().then(()=>$('archiveRefresh').click()).catch(err)});
 const archive=createWorkerArchive({client:()=>sb,allowed:adminAllowed,openFile,typeLabel,stageLabel,statusLabel,renderScan:automaticScans.render,onReset:automaticScans.clear,reviewDocument:review});
 const refreshAdminArchive=refreshAdmin;
-refreshAdmin=async function(){await refreshAdminArchive();if(adminAllowed()){await archive.setWorkers(people);refreshAdminMenu();}};
+refreshAdmin=async function(){await refreshAdminArchive();if(adminAllowed()){await archive.setWorkers(people);if(adminAllowed())refreshAdminMenu();}};
 const multiPage=createMultiPageCapture({allowed:worker=>!!session&&session.user.id===worker&&profile?.active&&profile.role==='worker',onSubmit:async(file,selected)=>{if(pendingDraft){renderUploadRecovery();throw Error('Riprendi o elimina prima l’invio già pronto.');}await acceptUploadFile(file,{...selected,note:$('docNote').value.trim()});if(pendingDraft)throw Error('Riprendi l’invio dal riquadro di recupero.');}});
 const appReady=boot().catch(err);
 

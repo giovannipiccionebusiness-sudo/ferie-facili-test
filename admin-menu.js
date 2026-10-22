@@ -65,7 +65,7 @@ export function refreshAdminMenu(){
    .admin-menu-arrow{font-size:1.2rem;color:#718e86;transition:transform .15s}details[open]>summary>.admin-menu-arrow{transform:rotate(180deg)}
    .admin-mobile-dashboard details[open]>summary,.admin-fold[open]>summary{background:#f0faf6;border-bottom:1px solid #e0eee7}
    .admin-mobile-dashboard details>div{padding:10px 15px 16px;font-size:.9rem;color:#607b72}
-   .admin-fold>section{padding:14px!important;margin:0!important}.admin-mobile-filters{border-radius:20px!important}
+   .admin-fold>section>h3{display:none}.admin-fold>section{padding:14px!important;margin:0!important}.admin-mobile-filters{border-radius:20px!important}
    .admin-mobile-dashboard h2{font-size:1.2rem;color:#173d37;margin-bottom:6px}
   }`;document.head.append(style);
   dashboard=document.createElement('section');dashboard.className='admin-mobile-dashboard';
