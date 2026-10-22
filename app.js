@@ -84,7 +84,27 @@ $('loginBtn').onclick=async()=>{
  }catch(e){err(e)}finally{b.disabled=false;b.textContent='Accedi'}
 };
 $('signupBtn').onclick=async()=>{const email=$('email').value.trim(),password=$('password').value;if(!email||password.length<8){msg('Inserisci email e password di almeno 8 caratteri.');return}const full_name=prompt('Inserisci nome e cognome completi:');if(!full_name?.trim())return;const {error}=await authClient.auth.signUp({email,password,options:{data:{full_name:full_name.trim()}}});if(error)err(error);else msg('Registrazione richiesta. Controlla la tua email per confermarla, poi attendi l’abilitazione.')};
-$('logoutBtn').onclick=async()=>{if(uploading){msg('Attendi la fine del caricamento prima di uscire.');return;}clearCameraSelection();clearCameraRetry();uploadStatusPanel?.remove();uploadStatusPanel=null;uploadBar=null;uploadStatusText=null;if(session?.user?.id)await deleteUploadDraft(session.user.id).catch(()=>{});pendingDraft=null;recoveryPanel?.remove();recoveryPanel=null;await authClient.auth.signOut();};
+let signingOut=false;
+$('logoutBtn').onclick=async()=>{
+ if(signingOut)return;
+ if(uploading){msg('Attendi la fine del caricamento prima di uscire.');return;}
+ if(!authClient){msg('Connessione in preparazione. Riprova tra qualche secondo.');return;}
+ signingOut=true;const b=$('logoutBtn');b.disabled=true;b.textContent='Uscita…';msg('Disconnessione in corso…');
+ let timer;
+ try{
+  const worker=profile?.role==='worker'?session?.user?.id:null;
+  // Draft storage must never prevent Auth from signing out (IndexedDB can be blocked).
+  if(worker)deleteUploadDraft(worker).catch(()=>{});
+  const result=await Promise.race([authClient.auth.signOut({scope:'local'}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Disconnessione non completata. Controlla la connessione e riprova.')),10000);})]);
+  if(result?.error)throw result.error;
+  session=null;profile=null;docs=[];people=[];missing=[];selectedUpload=null;
+  clearCameraSelection();clearCameraRetry();pendingDraft=null;recoveryPanel?.remove();recoveryPanel=null;
+  uploadStatusPanel?.remove();uploadStatusPanel=null;uploadBar=null;uploadStatusText=null;
+  $('password').value='';$('accountName').textContent='';$('accountInfo').textContent='';
+  for(const id of ['pendingDocs','reviewedDocs','pendingUsers','auditList','deliveryList','docList','myNotifications','adminMobileReviews','adminMobileAuthorizations'])$(id)?.replaceChildren();
+  showLogged(false);msg('Accesso terminato.');$('authArea').scrollIntoView({behavior:'smooth',block:'center'});
+ }catch(e){err(e);}finally{clearTimeout(timer);signingOut=false;b.disabled=false;b.textContent='Esci';}
+};
 $('month').onchange=refreshWorker;
 
 let selectedUpload=null,uploading=false;
