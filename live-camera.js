@@ -1,9 +1,8 @@
-import {edgePaper} from './edge-crop.js?v=30';
 import {detectPaper,warpImage,makePDF} from './scanner-core.js?v=30';
 export function stableDocument(previous,current){
  return !!previous&&!!current&&current.every((p,i)=>Math.hypot(p.x-previous[i].x,p.y-previous[i].y)<.012);
 }
-export function openDocumentCamera({pageImage=false}={}){
+export function openDocumentCamera(){
  return new Promise(resolve=>{
  const el=(tag,text)=>{const n=document.createElement(tag);if(text)n.textContent=text;return n;};
  const dialog=el('dialog'),title=el('h2','Scansiona documento · TEST'),status=el('p','Scegli come acquisire il documento.'),stage=el('div'),video=el('video'),overlay=el('canvas'),preview=el('img'),actions=el('div');
@@ -24,23 +23,23 @@ export function openDocumentCamera({pageImage=false}={}){
   finally{start.disabled=false;}
  }
  function tick(){if(closed||!stream||busy)return;
-  try{if(video.videoWidth&&video.readyState>=2){sample.width=240;sample.height=Math.round(240*video.videoHeight/video.videoWidth);ctx.drawImage(video,0,0,sample.width,sample.height);const frame=ctx.getImageData(0,0,sample.width,sample.height);let found=detectPaper(frame);if(!found.detected)found=edgePaper(frame)||found;
+  if(video.videoWidth){sample.width=240;sample.height=Math.round(240*video.videoHeight/video.videoWidth);ctx.drawImage(video,0,0,sample.width,sample.height);const found=detectPaper(ctx.getImageData(0,0,sample.width,sample.height));
    const normalized=found.detected?found.points.map(p=>({x:p.x/sample.width,y:p.y/sample.height})):null;
-   points=normalized&&normalized.every(p=>p.x>.004&&p.x<.996&&p.y>.004&&p.y<.996)?normalized:null;
+   points=normalized&&normalized.every(p=>p.x>.015&&p.x<.985&&p.y>.015&&p.y<.985)?normalized:null;
    overlay.width=sample.width;overlay.height=sample.height;const draw=overlay.getContext('2d');draw.clearRect(0,0,overlay.width,overlay.height);
    if(points){draw.beginPath();points.forEach((p,i)=>draw[i?'lineTo':'moveTo'](p.x*overlay.width,p.y*overlay.height));draw.closePath();draw.fillStyle='rgba(30,144,255,.18)';draw.strokeStyle='#168cff';draw.lineWidth=2;draw.fill();draw.stroke();
     if(!stableDocument(previous,points))stableSince=performance.now();status.textContent=automatic.checked?'Documento trovato. Resta immobile…':'Documento trovato. Premi Scatta ora.';
     if(automatic.checked&&performance.now()-stableSince>2000){capture();return;}
    }else{stableSince=performance.now();status.textContent='Inquadra tutti i bordi. Puoi anche premere Scatta ora.';}previous=points;
-  }}catch{points=previous=null;stableSince=performance.now();status.textContent='Attendo un’immagine nitida. Tieni tutti i bordi nell’inquadratura.';}timer=setTimeout(tick,300);
+  }timer=setTimeout(tick,250);
  }
  async function capture(){if(busy||!stream||!video.videoWidth)return;busy=true;snap.disabled=true;clearTimeout(timer);status.textContent='Preparazione anteprima…';
   try{const source=el('canvas'),scale=Math.min(1,2000/Math.max(video.videoWidth,video.videoHeight));source.width=Math.round(video.videoWidth*scale);source.height=Math.round(video.videoHeight*scale);const sc=source.getContext('2d');sc.drawImage(video,0,0,source.width,source.height);const corners=points?.map(p=>({x:p.x*source.width,y:p.y*source.height}));stop();const original=await new Promise(r=>source.toBlob(r,'image/jpeg',.94));if(!original)throw Error('Foto non acquisita.');
-   if(corners){const top=Math.hypot(corners[1].x-corners[0].x,corners[1].y-corners[0].y),side=Math.hypot(corners[3].x-corners[0].x,corners[3].y-corners[0].y);const landscape=top>side;const w=landscape?1754:1240,h=landscape?1240:1754;const result=warpImage(sc.getImageData(0,0,source.width,source.height),corners,w,h,true);const output=el('canvas');output.width=w;output.height=h;output.getContext('2d').putImageData(new ImageData(result.data,w,h),0,0);const jpeg=await new Promise(r=>output.toBlob(r,'image/jpeg',.92));if(!jpeg)throw Error('Ritaglio non riuscito.');file=pageImage?new File([jpeg],'pagina-scansionata.jpg',{type:'image/jpeg'}):new File([makePDF(new Uint8Array(await jpeg.arrayBuffer()),w,h,new Uint8Array(await original.arrayBuffer()),'image/jpeg',landscape)],'documento-scansionato.pdf',{type:'application/pdf'});if(pageImage)file.originalPhoto=original;if(url)URL.revokeObjectURL(url);url=URL.createObjectURL(jpeg);status.textContent='Controlla i bordi e la leggibilità. La foto originale è conservata come allegato nel PDF. Il documento non è ancora inviato.';
+   if(corners){const top=Math.hypot(corners[1].x-corners[0].x,corners[1].y-corners[0].y),side=Math.hypot(corners[3].x-corners[0].x,corners[3].y-corners[0].y);const landscape=top>side;const w=landscape?1754:1240,h=landscape?1240:1754;const result=warpImage(sc.getImageData(0,0,source.width,source.height),corners,w,h,true);const output=el('canvas');output.width=w;output.height=h;output.getContext('2d').putImageData(new ImageData(result.data,w,h),0,0);const jpeg=await new Promise(r=>output.toBlob(r,'image/jpeg',.92));if(!jpeg)throw Error('Ritaglio non riuscito.');file=new File([makePDF(new Uint8Array(await jpeg.arrayBuffer()),w,h,new Uint8Array(await original.arrayBuffer()),'image/jpeg',landscape)],'documento-scansionato.pdf',{type:'application/pdf'});if(url)URL.revokeObjectURL(url);url=URL.createObjectURL(jpeg);status.textContent='Controlla i bordi e la leggibilità. La foto originale è conservata come allegato nel PDF. Il documento non è ancora inviato.';
    }else{file=new File([original],'foto-documento.jpg',{type:'image/jpeg'});if(url)URL.revokeObjectURL(url);url=URL.createObjectURL(original);status.textContent='Bordi non riconosciuti: questa è la foto intera. Ripeti oppure usa la foto. Il documento non è ancora inviato.';}
    if(!closed){preview.src=url;view('preview');}
   }catch(e){if(!closed){view('choose');status.textContent=e.message+' Riprova oppure scegli un file.';}}
-  finally{busy=false;snap.disabled=false;if(closed&&url)URL.revokeObjectURL(url);}
+  finally{busy=false;snap.disabled=false;}
  }
  start.onclick=retry.onclick=begin;snap.onclick=capture;use.onclick=()=>finish(file);gallery.onclick=()=>finish('gallery');close.onclick=()=>finish(null);dialog.addEventListener('cancel',e=>{e.preventDefault();finish(null);});view('choose');dialog.showModal();
  });
