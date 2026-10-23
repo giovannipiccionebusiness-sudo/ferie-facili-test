@@ -1,4 +1,4 @@
-import {openDocumentCamera} from './live-camera.js?v=38';
+import {openDocumentCamera} from './live-camera.js?v=39';
 import {refreshAdminMenu} from './admin-menu.js?v=34';
 import {revealWorkerTarget,refreshWorkerMenu,resetWorkerMenu} from './worker-menu.js?v=30';
 import {appConfirm} from './app-dialog.js?v=30';

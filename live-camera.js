@@ -1,11 +1,12 @@
-import {detectPaper,warpImage,makePDF} from './scanner-core.js?v=30';
+import {detectLivePaper} from './live-detector.js?v=39';
+import {warpImage,makePDF} from './scanner-core.js?v=30';
 export function stableDocument(previous,current){
  return !!previous&&!!current&&current.every((p,i)=>Math.hypot(p.x-previous[i].x,p.y-previous[i].y)<.012);
 }
 export function openDocumentCamera(){
  return new Promise(resolve=>{
  const el=(tag,text)=>{const n=document.createElement(tag);if(text)n.textContent=text;return n;};
- const dialog=el('dialog'),title=el('h2','Scansiona documento · TEST'),status=el('p','Scegli come acquisire il documento.'),stage=el('div'),video=el('video'),overlay=el('canvas'),preview=el('img'),actions=el('div');
+ const dialog=el('dialog'),title=el('h2','Scansiona documento · TEST 39'),status=el('p','Scegli come acquisire il documento.'),stage=el('div'),video=el('video'),overlay=el('canvas'),preview=el('img'),actions=el('div');
  dialog.className='live-document-camera';dialog.setAttribute('aria-label','Acquisizione documento');status.setAttribute('role','status');video.autoplay=true;video.muted=true;video.playsInline=true;preview.alt='Anteprima del documento ritagliato';
  const start=el('button','Apri fotocamera'),snap=el('button','Scatta ora'),use=el('button','Usa questa scansione'),retry=el('button','Ripeti foto'),gallery=el('button','Galleria o PDF'),close=el('button','Chiudi');
  const automatic=el('input'),label=el('label',' Scatto automatico');automatic.type='checkbox';automatic.checked=true;label.prepend(automatic);automatic.style.width='auto';
@@ -23,15 +24,15 @@ export function openDocumentCamera(){
   finally{start.disabled=false;}
  }
  function tick(){if(closed||!stream||busy)return;
-  if(video.videoWidth){sample.width=240;sample.height=Math.round(240*video.videoHeight/video.videoWidth);ctx.drawImage(video,0,0,sample.width,sample.height);const found=detectPaper(ctx.getImageData(0,0,sample.width,sample.height));
+  try{if(video.videoWidth&&video.readyState>=2){sample.width=240;sample.height=Math.round(240*video.videoHeight/video.videoWidth);ctx.drawImage(video,0,0,sample.width,sample.height);const found=detectLivePaper(ctx.getImageData(0,0,sample.width,sample.height));
    const normalized=found.detected?found.points.map(p=>({x:p.x/sample.width,y:p.y/sample.height})):null;
-   points=normalized&&normalized.every(p=>p.x>.015&&p.x<.985&&p.y>.015&&p.y<.985)?normalized:null;
+   points=normalized&&normalized.every(p=>p.x>0&&p.x<1&&p.y>0&&p.y<1)?normalized:null;
    overlay.width=sample.width;overlay.height=sample.height;const draw=overlay.getContext('2d');draw.clearRect(0,0,overlay.width,overlay.height);
    if(points){draw.beginPath();points.forEach((p,i)=>draw[i?'lineTo':'moveTo'](p.x*overlay.width,p.y*overlay.height));draw.closePath();draw.fillStyle='rgba(30,144,255,.18)';draw.strokeStyle='#168cff';draw.lineWidth=2;draw.fill();draw.stroke();
     if(!stableDocument(previous,points))stableSince=performance.now();status.textContent=automatic.checked?'Documento trovato. Resta immobile…':'Documento trovato. Premi Scatta ora.';
     if(automatic.checked&&performance.now()-stableSince>2000){capture();return;}
-   }else{stableSince=performance.now();status.textContent='Inquadra tutti i bordi. Puoi anche premere Scatta ora.';}previous=points;
-  }timer=setTimeout(tick,250);
+   }else{stableSince=performance.now();status.textContent='Bordi non individuati. Allontana leggermente il telefono e inquadra il foglio al centro, con buona luce.';}previous=points;
+  }}catch{points=previous=null;stableSince=performance.now();status.textContent='Attendo un’immagine nitida…';}timer=setTimeout(tick,300);
  }
  async function capture(){if(busy||!stream||!video.videoWidth)return;busy=true;snap.disabled=true;clearTimeout(timer);status.textContent='Preparazione anteprima…';
   try{const source=el('canvas'),scale=Math.min(1,2000/Math.max(video.videoWidth,video.videoHeight));source.width=Math.round(video.videoWidth*scale);source.height=Math.round(video.videoHeight*scale);const sc=source.getContext('2d');sc.drawImage(video,0,0,source.width,source.height);const corners=points?.map(p=>({x:p.x*source.width,y:p.y*source.height}));stop();const original=await new Promise(r=>source.toBlob(r,'image/jpeg',.94));if(!original)throw Error('Foto non acquisita.');
