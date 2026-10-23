@@ -1,4 +1,4 @@
-import {openDocumentCamera} from './live-camera.js?v=36';
+import {openDocumentCamera} from './live-camera.js?v=37';
 import {revealWorkerTarget} from './worker-menu.js?v=30';
 const MAX=12*1024*1024;
 export function makeMultiPDF(pages){
