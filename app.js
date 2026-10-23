@@ -1,3 +1,4 @@
+import {openDocumentCamera} from './live-camera.js?v=35';
 import {refreshAdminMenu} from './admin-menu.js?v=34';
 import {revealWorkerTarget,refreshWorkerMenu,resetWorkerMenu} from './worker-menu.js?v=30';
 import {appConfirm} from './app-dialog.js?v=30';
@@ -209,7 +210,11 @@ async function pick(a){
   if(a==='final'&&selected.month>=monthNow()&&!await appConfirm('Il mese selezionato è ancora in corso. Il foglio definitivo deve comprendere tutti i giorni del mese. Continuare?'))return;
   if(a==='final'&&!await appConfirm('Confermi che il foglio è completo per TUTTO il mese e firmato a mano?'))return;
   if(selected.category==='congedo_parentale'){clearCameraRetry();clearCameraSelection();showDocuments();multiPage.open(selected).catch(err);return;}
-  clearCameraRetry();selectedUpload=selected;rememberCameraSelection(selected);showDocuments();$('docPicker').value='';$('docPicker').click();
+  clearCameraRetry();clearCameraSelection();showDocuments();
+  const captured=await openDocumentCamera();
+  if(!captured)return;
+  if(captured==='gallery'){selectedUpload=selected;rememberCameraSelection(selected);$('docPicker').value='';$('docPicker').click();}
+  else await acceptUploadFile(captured,selected);
  }catch(e){err(e);$('appMsg').scrollIntoView({behavior:'smooth',block:'center'});}
 }
 $('updateSheet').onclick=()=>pick('weekly');$('replaceSheet').onclick=()=>pick('replacement');$('finalSheet').onclick=()=>pick('final');$('uploadOther').onclick=()=>pick('request');
