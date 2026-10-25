@@ -4,7 +4,7 @@ Le notifiche richiedono un consenso esplicito sul dispositivo. iPhone/iPad richi
 
 ## Prova
 
-Accedere alla versione di test, premere **Attiva notifiche**, consentire e premere **Invia notifica di prova**. Quest'ultimo tasto contatta soltanto il dispositivo dell'account corrente, con un limite di una prova al minuto. I messaggi sullo schermo sono generici e non includono nomi, tipi di documento o dati sanitari.
+Accedere alla versione di test, premere **Sì, attiva gli avvisi**, consentire e premere **Invia notifica di prova**. Quest'ultimo tasto contatta soltanto il dispositivo dell'account corrente, con un limite di una prova al minuto. I messaggi sullo schermo sono generici e non includono nomi, tipi di documento o dati sanitari.
 
 Gli account in attesa possono attivare le notifiche prima dell'abilitazione. L'avviso di abilitazione riguarda il passaggio successivo da non attivo ad attivo. Gli account già attivi non ricevono un avviso retroattivo.
 
@@ -26,3 +26,7 @@ La versione ufficiale non include questi controlli o handler push. Il backend è
 ## Verifiche
 
 Test SQL con account e documenti fittizi, annullati con rollback: account non attivo, abilitazione, duplicati, calendario settimanale/mensile, definitivo già caricato e privilegi client. Test browser con servizio push simulato: consenso soltanto al clic, attivazione, prova sul proprio dispositivo e annullamento al logout. API effettiva: richieste senza sessione e dispatcher con token errato restituiscono 401. La ricezione su Android/iPhone richiede la prova reale del proprietario del dispositivo.
+
+## Attivazione semplificata
+
+Il riquadro offre “Sì, attiva gli avvisi” e “Non ora”. La scelta di rimandare è conservata per l'account nella sessione del browser. Chi chiude la richiesta senza bloccare gli avvisi può riprovare senza essere mandato alle impostazioni. Se il permesso è negato, un pulsante apre una guida a tre passaggi con icone, distinta per Android/browser e iPhone. Su iPhone non installato viene spiegata prima l'aggiunta alla schermata Home. “Ho fatto, ricontrolla” aggiorna lo stato senza aprire automaticamente richieste di permesso.
