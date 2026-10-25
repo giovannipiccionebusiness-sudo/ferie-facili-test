@@ -1,0 +1,25 @@
+begin;
+insert into auth.users(id,email,raw_user_meta_data) values('a2cc152d-9b0a-4d67-adf0-123450000001','push-fixture@example.invalid','{"full_name":"Push Fixture"}');
+update public.profiles set role='worker',active=false,site='N153' where id='a2cc152d-9b0a-4d67-adf0-123450000001';
+insert into public.test_push_subscriptions(id,user_id,endpoint) values('a2cc152d-9b0a-4d67-adf0-123450000002','a2cc152d-9b0a-4d67-adf0-123450000001','https://fcm.googleapis.com/fictitious-push-test-never-send');
+do $$ declare n int; begin
+ perform private.test_push_tick('2026-10-30 16:15:00Z');
+ select count(*) into n from public.test_push_queue where subscription_id='a2cc152d-9b0a-4d67-adf0-123450000002';
+ if n<>0 then raise exception 'Inactive worker received reminder'; end if;
+ update public.profiles set active=true where id='a2cc152d-9b0a-4d67-adf0-123450000001';
+ perform private.test_push_tick('2026-10-30 16:15:00Z');perform private.test_push_tick('2026-10-30 16:16:00Z');
+ select count(*) into n from public.test_push_queue where subscription_id='a2cc152d-9b0a-4d67-adf0-123450000002';
+ if n<>2 then raise exception 'Activation or weekly duplicate: %',n; end if;
+ perform private.test_push_tick('2026-10-31 17:15:00Z');perform private.test_push_tick('2026-10-31 17:16:00Z');
+ select count(*) into n from public.test_push_queue where subscription_id='a2cc152d-9b0a-4d67-adf0-123450000002' and kind='monthly';
+ if n<>1 then raise exception 'Monthly duplicate'; end if;
+ delete from public.test_push_queue where subscription_id='a2cc152d-9b0a-4d67-adf0-123450000002' and kind in ('weekly','monthly');
+ insert into storage.objects(bucket_id,name) values('private-documents','a2cc152d-9b0a-4d67-adf0-123450000001/2026-10/a2cc152d-9b0a-4d67-adf0-123450000003.pdf');
+ insert into public.documents(id,worker_id,site,month,category,stage,week_ending,file_path,file_name) values('a2cc152d-9b0a-4d67-adf0-123450000003','a2cc152d-9b0a-4d67-adf0-123450000001','N153','2026-10','presenze','final',null,'a2cc152d-9b0a-4d67-adf0-123450000001/2026-10/a2cc152d-9b0a-4d67-adf0-123450000003.pdf','fixture.pdf');
+ perform private.test_push_tick('2026-10-30 16:15:00Z');perform private.test_push_tick('2026-10-31 17:15:00Z');
+ select count(*) into n from public.test_push_queue where subscription_id='a2cc152d-9b0a-4d67-adf0-123450000002' and kind in ('weekly','monthly');
+ if n<>0 then raise exception 'Reminder sent for uploaded final'; end if;
+ if has_table_privilege('authenticated','public.test_push_config','SELECT') or has_table_privilege('anon','public.test_push_subscriptions','SELECT') or has_function_privilege('authenticated','public.test_claim_push()','EXECUTE') then raise exception 'Client has privileged access';end if;
+end $$;
+rollback;
+select 'PASS inactive/activation/deduplication/weekly/monthly/final upload/access permissions; fixtures rolled back' as test_result;
