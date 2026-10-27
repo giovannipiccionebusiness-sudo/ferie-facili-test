@@ -1,4 +1,4 @@
-import {createRestPlanner} from './rest-ui.js?v=45';
+import {createRestPlanner} from './rest-ui.js?v=46';
 import {createPushControls} from './push-notifications.js?v=43';
 import {openDocumentCamera} from './live-camera.js?v=39';
 import {refreshAdminMenu} from './admin-menu.js?v=34';
