@@ -1,0 +1,48 @@
+import Decimal from './vendor/decimal.js';
+Decimal.set({precision:80,rounding:Decimal.ROUND_HALF_UP});
+export const dec=v=>{if(v==null||String(v).trim()==='')throw Error('Numero mancante: dato da verificare');const d=new Decimal(String(v).replace(',','.'));if(!d.isFinite())throw Error('Numero non valido');return d;};
+export const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9 ]/g,' ').trim().replace(/\s+/g,' ');
+export const nameKey=s=>norm(s).split(' ').sort().join(' ');
+export const iso=d=>d.toISOString().slice(0,10);
+export function date(v){if(!/^\d{4}-\d{2}-\d{2}$/.test(v||''))throw Error('Data non valida');const d=new Date(v+'T12:00:00Z');if(iso(d)!==v)throw Error('Data non valida');return d;}
+export function days(a,b){const out=[];let d=date(a),last=date(b);if(d>last||last-d>366*86400000*3)throw Error('Intervallo non valido (massimo tre anni)');for(;d<=last;d.setUTCDate(d.getUTCDate()+1))out.push(iso(d));return out;}
+export function monthEnd(m){return iso(new Date(Date.UTC(Number(m.slice(0,4)),Number(m.slice(5,7)),0,12)));}
+export const versionFor=(list,d)=>[...(list||[])].filter(x=>x.from<=d).sort((a,b)=>b.from.localeCompare(a.from))[0];
+export function validateConfig(c){
+ if(!c||typeof c!=='object'||JSON.stringify(c).length>30000)throw Error('Configurazione non valida');
+ for(const r of c.rates||[]){date(r.from);if(!r.from.endsWith('-01'))throw Error('La quota decorre dal primo giorno del mese');for(const k of ['ferie','rol'])if(dec(r[k]).lt(0)||dec(r[k]).gt(10))throw Error('Quota mensile non valida');if(r.confirmed!==true)throw Error('Conferma la quota mensile');}
+ for(const s of c.schedules||[]){date(s.from);if(!Array.isArray(s.hours)||s.hours.length!==7)throw Error('Compila tutti i sette giorni');let total=dec(0);for(const h of s.hours){if(dec(h).lt(0)||dec(h).gt(24))throw Error('Ore giornaliere non valide');total=total.plus(h);}if(!total.eq(s.weekly_hours)||total.lte(0)||total.gt(84))throw Error('La somma dei sette giorni deve coincidere con le ore settimanali');for(const k of ['ferie_day_hours','rol_day_hours'])if(dec(s[k]).lte(0)||dec(s[k]).gt(24))throw Error('Conferma le ore equivalenti a un giorno del report');if(!s.confirmed)throw Error('Conferma orario e conversione dei giorni');}
+ for(const x of c.day_overrides||[]){date(x.day);if(dec(x.hours).lt(0)||dec(x.hours).gt(24))throw Error('Ore della variazione di calendario non valide');}if(new Set((c.day_overrides||[]).map(x=>x.day)).size!==(c.day_overrides||[]).length)throw Error('Variazioni di calendario duplicate');
+ const abs=c.expectancies||[];for(let i=0;i<abs.length;i++){const a=abs[i];date(a.start);if(a.end&&date(a.end)<date(a.start))throw Error('Fine aspettativa precedente all’inizio');if(!['calendar_prorata','any_overlap_stop'].includes(a.method))throw Error('Scegli come trattare i mesi parziali di aspettativa');for(const k of ['ferie','rol'])if(typeof a[k]!=='boolean')throw Error('Specifica se maturano ferie e ROL durante l’aspettativa');for(let j=0;j<i;j++)if(a.start<=(abs[j].end||'9999-12-31')&&(a.end||'9999-12-31')>=abs[j].start)throw Error('Aspettative sovrapposte');}
+ if((c.rates||[]).length>60||(c.schedules||[]).length>60||abs.length>30)throw Error('Troppi periodi');return c;
+}
+export function quantities(config,start,end,kind,dailyHours=null){
+ if(!['ferie','rol'].includes(kind))throw Error('Tipo assenza non valido');const out=[];
+ for(const day of days(start,end)){const s=versionFor(config.schedules,day);if(!s?.confirmed)throw Error('Orario individuale da verificare per '+day);if((config.expectancies||[]).some(a=>day>=a.start&&(!a.end||day<=a.end)))throw Error('Periodo coincidente con un’aspettativa: '+day);const weekday=(date(day).getUTCDay()+6)%7,override=(config.day_overrides||[]).find(x=>x.day===day),scheduled=dec(override?override.hours:s.hours[weekday]);if(scheduled.isZero())continue;const hours=kind==='rol'&&dailyHours!==null&&dailyHours!==''?dec(dailyHours):scheduled;if(hours.lte(0)||hours.gt(scheduled))throw Error('Le ore richieste superano il turno del '+day);const unit=dec(s[kind+'_day_hours']);if(unit.lte(0))throw Error('Equivalenza dei giorni del report da verificare');out.push({day,kind,hours:hours.toString(),quantity:hours.div(unit).toString(),max_capacity:scheduled.toString()});}
+ if(!out.length)throw Error('Nessun turno lavorativo nelle date selezionate');return out;
+}
+export function historyEvidence(balances,entries=[],config={}){
+ const sorted=[...balances].sort((a,b)=>a.period.localeCompare(b.period));const comparisons=[];
+ for(let i=1;i<sorted.length;i++){const a=sorted[i-1],b=sorted[i];const months=(Number(b.period.slice(0,4))-Number(a.period.slice(0,4)))*12+Number(b.period.slice(5,7))-Number(a.period.slice(5,7));comparisons.push({from:a.period,to:b.period,months,ferie:dec(b.ferie).minus(a.ferie).toString(),rol:dec(b.rol).minus(a.rol).toString(),note:months!==1?'Mesi mancanti: confronto non mensile':'Variazione netta del saldo, non maturazione'});}
+ // A net increase alone never proves accrual. Only explicitly reconciled usage can support a proposal.
+ const supported=[];for(const cmp of comparisons.filter(x=>x.months===1)){const complete=(config.reconciled_months||[]).includes(cmp.to.slice(0,7));if(!complete||config.expectancy_required&&!(config.expectancies||[]).length||(config.expectancies||[]).some(a=>a.start<=cmp.to&&(!a.end||a.end>cmp.from)))continue;const inPeriod=entries.filter(x=>x.state==='used'&&x.day>cmp.from&&x.day<=cmp.to);supported.push({...cmp,ferie:dec(cmp.ferie).plus(inPeriod.filter(x=>x.kind==='ferie').reduce((a,x)=>a.plus(x.quantity),dec(0))).toString(),rol:dec(cmp.rol).plus(inPeriod.filter(x=>x.kind==='rol').reduce((a,x)=>a.plus(x.quantity),dec(0))).toString()});}
+ let proposal=config.proposal||null;if(!proposal&&supported.length>=2){const last=supported.slice(-3);if(['ferie','rol'].every(k=>last.every(x=>dec(x[k]).gt(0)&&dec(x[k]).minus(last[0][k]).abs().lte('0.005'))))proposal={ferie:last[0].ferie,rol:last[0].rol,source:'Storico con utilizzi riconciliati: '+last.map(x=>x.to).join(', ')};}
+ return {comparisons,proposal,status:proposal?'Proposta da confermare':'Da verificare',gaps:comparisons.filter(x=>x.months>1)};
+}
+export function project(data,input){
+ const balances=data.balances||[],base=[...balances].sort((a,b)=>b.period.localeCompare(a.period))[0];if(!base)throw Error('Saldo individuale non ancora disponibile');const c=data.config||{};if(c.expectancy_required&&!(c.expectancies||[]).length)throw Error('Aspettativa da verificare: inserire date e regole di maturazione');validateConfig(c);date(input.start);date(input.end);if(input.start<=base.period)throw Error('Scegli una partenza successiva al saldo del report');if((data.unreconciled||[]).length)throw Error('Sono presenti richieste autorizzate ancora da riconciliare dal responsabile');
+ const requested=quantities(c,input.start,input.end,input.kind,input.dailyHours),maturity={ferie:dec(0),rol:dec(0)},months=[];
+ let current=new Date(Date.UTC(Number(base.period.slice(0,4)),Number(base.period.slice(5,7)),1,12));const limit=input.start.slice(0,7)+'-01';
+ for(;iso(current)<limit;current.setUTCMonth(current.getUTCMonth()+1)){if(months.length>60)throw Error('Proiezione massima di cinque anni');const first=iso(current),last=monthEnd(first.slice(0,7)),rate=versionFor(c.rates,first);if(!rate?.confirmed)throw Error('Maturazione individuale da verificare per '+first.slice(0,7));const row={month:first.slice(0,7)};
+  for(const kind of ['ferie','rol']){let factor=dec(1);for(const a of c.expectancies||[]){if(a.start>last||(a.end&&a.end<first)||a[kind])continue;const overlap=days(a.start>first?a.start:first,a.end&&a.end<last?a.end:last).length;factor=a.method==='any_overlap_stop'?dec(0):factor.minus(dec(overlap).div(Number(last.slice(8))));}const amount=dec(rate[kind]).times(Decimal.max(0,factor));maturity[kind]=maturity[kind].plus(amount);row[kind]=amount.toString();}months.push(row);
+ }
+ const used={ferie:dec(0),rol:dec(0)},committed={ferie:dec(0),rol:dec(0)},overlap=new Map();
+ for(const entry of data.entries||[]){if(entry.state==='cancelled')continue;if(entry.included_in_report&&entry.included_in_report<=base.period)continue;
+  if(entry.day<=base.period){if(entry.state==='used')continue;throw Error('Impegno precedente al nuovo report da riconciliare: '+entry.day);}
+  if(entry.state==='used')used[entry.kind]=used[entry.kind].plus(entry.quantity);else if(entry.state==='approved')committed[entry.kind]=committed[entry.kind].plus(entry.quantity);
+  if(entry.kind===input.kind&&entry.day>=input.start&&entry.day<=input.end)overlap.set(entry.day,dec(overlap.get(entry.day)||0).plus(entry.quantity));
+ }
+ const gross=requested.reduce((a,x)=>a.plus(x.quantity),dec(0)),reserved=requested.reduce((a,x)=>a.plus(Decimal.min(x.quantity,overlap.get(x.day)||0)),dec(0)),additional=gross.minus(reserved),result={baseDate:base.period,months,requested:requested.map(x=>({...x})),gross:gross.toString(),alreadyReserved:reserved.toString(),additional:additional.toString(),exFestivita:base.ex_festivita,disclaimer:'Proiezione indicativa, soggetta a verifica e autorizzazione',kinds:{}};
+ for(const kind of ['ferie','rol']){const available=dec(base[kind]).plus(maturity[kind]).minus(used[kind]).minus(committed[kind]),quantity=kind===input.kind?additional:dec(0),residual=available.minus(quantity);result.kinds[kind]={base:String(base[kind]),accrual:maturity[kind].toString(),used:used[kind].toString(),committed:committed[kind].toString(),available:available.toString(),requested:quantity.toString(),residual:residual.toString(),missing:Decimal.max(0,residual.neg()).toString()};}
+ result.sufficient=dec(result.kinds[input.kind].residual).gte(0);return result;
+}
