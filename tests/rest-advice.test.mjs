@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {buildAdvice} from '../rest-advice.js';
+const config={rates:[{from:'2026-01-01',ferie:'1.83',rol:'0.41',confirmed:true}],schedules:[{from:'2026-01-01',confirmed:true,hours:['4','4','4','4','4','0','0'],weekly_hours:'20',ferie_day_hours:'4',rol_day_hours:'4'}],day_overrides:[]};
+const person=(id)=>({person_key:id,surname:id,given_name:'Fittizio',account_id:id});
+const data=(ferie='10',c=config)=>({balances:[{period:'2026-09-30',ferie,rol:'20'}],config:structuredClone(c),entries:[],unreconciled:[]});
+const roster={people:[person('A'),person('B')],accounts:[{id:'A',site:'S1',active:true},{id:'B',site:'S1',active:true}]};
+const snapshots=new Map([['A',data()],['B',data('12')]]),input={roster,snapshots,start:'2026-11-01',end:'2026-11-30',today:'2026-10-27',turns:3};
+const original=JSON.stringify([...snapshots]);let r=buildAdvice(input);assert.equal(r.results[0].person_key,'B');assert.equal(r.results[0].priority,2);assert.equal(r.results[0].yearUnknown,true);assert.equal(r.results[0].options[0].quantity,'3');assert.equal(r.results[0].options[0].status,'pending_admin');assert.equal(r.results[0].options[0].requiresApproval,true);
+const six=structuredClone(config);six.schedules[0].hours[5]='4';six.schedules[0].weekly_hours='24';const sixData=new Map([['A',data('10',six)]]);r=buildAdvice({...input,roster:{people:[person('A')],accounts:roster.accounts},snapshots:sixData,start:'2026-11-06',end:'2026-11-10',turns:2});assert.equal(r.results[0].options[0].end,'2026-11-07');
+const lots=new Map([['A',[{kind:'ferie',year:2025,remaining:'1',period:'2026-09-30',source:'Fonte verificata',deadline:'2026-06-30',deadlineSource:'Documento'}]]]);r=buildAdvice({...input,lots});assert.equal(r.results[0].person_key,'A');assert.equal(r.results[0].priority,0);
+const low=new Map([['A',data('-5')],['B',data('0')]]);r=buildAdvice({...input,snapshots:low});assert.equal(r.results.length,0);assert(r.blocked.some(b=>b.reason.includes('ROL restano separati')));
+const booked=structuredClone(snapshots);booked.get('B').entries=[{day:'2026-11-02',state:'approved',kind:'ferie',hours:'4',quantity:'1'}];r=buildAdvice({...input,snapshots:booked});assert(r.results.find(p=>p.person_key==='A').options.every(o=>!o.conflicts.length));assert(r.results.find(p=>p.person_key==='B').options.every(o=>!o.rows.some(x=>x.day==='2026-11-02')));
+r=buildAdvice({...input,start:'2026-11-02',end:'2026-11-04',snapshots:booked});assert.equal(r.results.find(p=>p.person_key==='A').options[0].conflicts.length,1);
+const unknown=structuredClone(snapshots);unknown.get('A').config.schedules=[];unknown.get('B').unreconciled=[{id:'pending'}];r=buildAdvice({...input,snapshots:unknown});assert.equal(r.results.length,0);assert.equal(r.blocked.length,2);
+const peerUnknown=structuredClone(snapshots);peerUnknown.get('B').unreconciled=[{id:'pending'}];r=buildAdvice({...input,snapshots:peerUnknown});assert.equal(r.results[0].options[0].coverageIncomplete,true);
+assert.throws(()=>buildAdvice({...input,turns:0}),/Scegli/);assert.equal(JSON.stringify([...snapshots]),original);
+console.log('PASS rest advice: exact projection reuse; five/six-day schedules; documented priority; no ROL compensation; own commitments excluded; peer conflicts; missing data blocked; incomplete calendars; immutable inputs; approval-only suggestions.');
