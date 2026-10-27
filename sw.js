@@ -1,8 +1,8 @@
 importScripts('./push-sw.js?v=43');
 
 const PREFIX='ferie-facili-test-';
-const CACHE=PREFIX+'20261027-riposo-v47';
-const FILES=['./rest-advice.js?v=47','./rest-planner.css?v=47','./rest-ui.js?v=47','./rest-core.js','./leave-core.js','./vendor/decimal.js','./notification-badge.png?v=43','./push-notifications.js?v=43','./push-sw.js?v=40','./live-detector.js?v=39','./live-camera.js?v=39','./live-camera.css?v=38','./admin-menu.js?v=34','./worker-menu.js?v=30','./install-app.js?v=30','./app-dialog.js?v=30','./pdf-scan.js?v=30','./multipage.js?v=38','./worker-guide.js?v=30','./','./index.html','./app.js?v=47','./archive.js?v=30','./auto-scan.js?v=30','./scanner-core.js?v=30','./edge-crop.js?v=30','./paper-clean.js?v=30','./upload-draft.js?v=30','./config.js','./manifest.webmanifest','./icon-192.png','./icon-512.png','./apple-touch-icon.png'];
+const CACHE=PREFIX+'20261027-riposo-v48';
+const FILES=['./rest-worker.js?v=48','./rest-offer-core.js?v=48','./rest-advice.js?v=47','./rest-planner.css?v=48','./rest-ui.js?v=48','./rest-core.js','./leave-core.js','./vendor/decimal.js','./notification-badge.png?v=43','./push-notifications.js?v=43','./push-sw.js?v=40','./live-detector.js?v=39','./live-camera.js?v=39','./live-camera.css?v=38','./admin-menu.js?v=34','./worker-menu.js?v=30','./install-app.js?v=30','./app-dialog.js?v=30','./pdf-scan.js?v=30','./multipage.js?v=38','./worker-guide.js?v=30','./','./index.html','./app.js?v=48','./archive.js?v=30','./auto-scan.js?v=30','./scanner-core.js?v=30','./edge-crop.js?v=30','./paper-clean.js?v=30','./upload-draft.js?v=30','./config.js','./manifest.webmanifest','./icon-192.png','./icon-512.png','./apple-touch-icon.png'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith(PREFIX)&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',e=>{

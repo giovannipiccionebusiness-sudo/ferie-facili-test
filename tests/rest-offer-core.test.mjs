@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {prepareOffer,validateResponse,THEMES} from '../rest-offer-core.js';
+const config={rates:[{from:'2026-01-01',ferie:'1.83',rol:'0.41',confirmed:true}],schedules:[{from:'2026-01-01',confirmed:true,hours:['4','4','4','4','4','0','0'],weekly_hours:'20',ferie_day_hours:'4',rol_day_hours:'4'}]};
+const data={balances:[{period:'2026-09-30',ferie:'10',rol:'2'}],config,entries:[],unreconciled:[]};
+const before=JSON.stringify(data);let p=prepareOffer(data,{start:'2026-11-06',end:'2026-11-06'},'2026-10-27');assert.equal(p.freeDays,3);assert.equal(p.workDays,1);assert.equal(p.title,'Allunga il tuo weekend');assert.equal(p.restEnd,'2026-11-08');
+const six=structuredClone(data);six.config.schedules[0].hours[5]='4';six.config.schedules[0].weekly_hours='24';p=prepareOffer(six,{start:'2026-11-06',end:'2026-11-06'},'2026-10-27');assert.equal(p.freeDays,1);assert.equal(p.workDays,1);
+p=prepareOffer(data,{start:'2026-11-02',end:'2026-11-04',theme:THEMES[2]},'2026-10-27');assert.equal(p.freeDays,5);assert.equal(p.title,'Organizza una pausa in famiglia');
+assert.throws(()=>prepareOffer(data,{start:'2026-11-06',end:'2026-11-06',theme:'Inventato'},'2026-10-27'),/Titolo/);
+assert.throws(()=>prepareOffer({...data,unreconciled:[{}]},{start:'2026-11-06',end:'2026-11-06'},'2026-10-27'),/riconciliare/);
+assert.throws(()=>prepareOffer(data,{start:'2026-10-27',end:'2026-10-27'},'2026-10-27'),/future/);
+assert.throws(()=>validateResponse({response:'approved',version:1},'2026-10-27'),/non valida/);
+assert.throws(()=>validateResponse({response:'alternative',version:1,start:'2026-10-26',end:'2026-11-03'},'2026-10-27'),/futuro/);
+assert.deepEqual(validateResponse({response:'declined',version:1,start:'malformed'},'2026-10-27'),{start:null,end:null});assert.equal(JSON.stringify(data),before);
+console.log('PASS offer copy: confirmed real schedules; 1 leave day/3 free days only when supported; Saturday excluded correctly; four styles; future alternatives; no approval response; original data unchanged.');

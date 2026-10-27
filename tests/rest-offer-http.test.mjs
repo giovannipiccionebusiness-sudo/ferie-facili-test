@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';import {createOfferHandler} from '../supabase/functions/rest-offers-test/handler.js';
+const profiles=[{id:'admin',role:'admin',active:true},{id:'one',role:'worker',active:true},{id:'two',role:'worker',active:true},{id:'off',role:'worker',active:false}];let actor='one',calls=[];
+const offer={id:'offer',scope:'test',person_key:'p',worker_id:'one',start_day:'2030-01-01',end_day:'2030-01-03',state:'offered',version:1};
+const db={auth:{async getUser(token){return {data:{user:token==='valid'?{id:actor}:null}};}},from(name){let filters=[];const data=()=>{const rows=name==='profiles'?profiles:name==='rest_offers'?[offer]:name==='leave_people'?[{person_key:'p',account_id:'one'}]:[];return rows.filter(r=>filters.every(([k,v])=>r[k]===v));};const q={select(){return q;},eq(k,v){filters.push([k,v]);return q;},gte(){return q;},order(){return q;},limit(){return q;},single:async()=>({data:data()[0]}),maybeSingle:async()=>({data:data()[0]||null}),then(resolve){resolve({data:data()});}};return q;},async rpc(name,args){calls.push({name,args});return {data:{...offer,state:args.answer,version:2}};}};
+const handler=createOfferHandler({db,enabled:true,today:()=> '2026-10-27'}),req=(body,token='valid')=>new Request('https://test.invalid',{method:'POST',headers:token?{Authorization:'Bearer '+token}:{},body:JSON.stringify(body)});
+assert.equal((await createOfferHandler({db})(req({action:'list'}))).status,503);
+assert.equal((await handler(req({action:'list'},''))).status,401);assert.equal((await handler(req({action:'list'},'bad'))).status,401);
+actor='off';assert.equal((await handler(req({action:'list'}))).status,403);
+actor='one';let r=await handler(req({action:'list'}));assert.equal((await r.json()).offers.length,1);
+assert.equal((await handler(req({action:'send',person_key:'p'}))).status,403);
+actor='two';r=await handler(req({action:'list'}));assert.equal((await r.json()).offers.length,0);assert.equal((await handler(req({action:'reply',id:'offer',response:'interested',version:1}))).status,404);
+actor='admin';assert.equal((await handler(req({action:'reply',id:'offer',response:'interested',version:1}))).status,403);
+actor='one';r=await handler(req({action:'reply',id:'offer',response:'interested',version:1,worker_id:'two',actor:'admin',scope:'production'}));assert.equal(r.status,200);assert.equal(calls[0].args.actor,'one');assert.equal(calls[0].args.answer,'interested');assert.equal((await handler(req({action:'approve',id:'offer'}))).status,400);
+console.log('PASS offers HTTP: disabled gate, login, active profile, owned list/reply, no cross-worker reads or writes, admin-only send, no impersonation/approval actions.');
