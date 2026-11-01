@@ -1,4 +1,4 @@
-import {CAUSES,weekDays,parseDuration,validateChanges,localToday,decimal} from './week-changes-core.js?v=51';
+import {CAUSES,weekDays,parseDuration,validateChanges,localToday,decimal} from './week-changes-core.js?v=52';
 const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(cls)n.className=cls;return n;};
 const dateLabel=day=>new Intl.DateTimeFormat('it-IT',{weekday:'long',day:'numeric',month:'short',timeZone:'UTC'}).format(new Date(day+'T12:00Z'));
 export function createWeekChanges({getClient,getSession,getProfile,onSaved=()=>{}}){
@@ -13,7 +13,7 @@ export function createWeekChanges({getClient,getSession,getProfile,onSaved=()=>{
   const valid=()=>token===revision&&workerAllowed(doc)&&getSession()?.user.id===owner;
   if(!valid()||!canOpen(doc))throw Error('Sessione o foglio cambiato');
   active?.close();const d=el('dialog',null,'wc-dialog'),head=el('header',null,'wc-head'),title=el('h2','Com’è andata questa settimana?'),close=el('button','×','wc-close');title.id='wc-title';d.setAttribute('aria-labelledby',title.id);close.type='button';close.setAttribute('aria-label','Chiudi variazioni settimanali');close.onclick=()=>d.close();head.append(el('span','PROVA · PRESENZE SETTIMANALI','wc-eyebrow'),close,title);d.append(head);
-  const body=el('div',null,'wc-body'),days=weekDays(doc.week_ending,doc.month),today=localToday();body.append(el('p','Aiutaci a riportare correttamente le tue presenze sul cartellino. Indica ogni settimana le ore in più e i giustificativi di assenza: il responsabile potrà consultarli più facilmente insieme al foglio caricato. Se non ci sono variazioni, basta confermare la settimana.','wc-intro'),el('p',dateLabel(days[0])+' — '+dateLabel(days.at(-1)),'wc-period'));const rows=[];
+  const body=el('div',null,'wc-body'),days=weekDays(doc.week_ending,doc.month),today=localToday();const invite=el('aside',null,'wc-invite');invite.append(el('strong','📝 Ore in più o assenze?'),el('p','Segnalale qui: aiuti il responsabile ad aggiornare il tuo cartellino.'),el('small','Nessuna variazione? Conferma la settimana.'));body.append(invite,el('p',dateLabel(days[0])+' — '+dateLabel(days.at(-1)),'wc-period'));const rows=[];
   function amount(parent,label,value=0){
    const group=el('fieldset',null,'wc-amount');group.append(el('legend',label));const input=el('input');input.type='text';input.inputMode='decimal';input.placeholder='Es. 1:30';input.maxLength=40;input.value=value?Math.floor(value/60)+':'+String(value%60).padStart(2,'0'):'';input.setAttribute('aria-label',label);
    const hint=el('small','Ore e minuti: 1,30 = 1.30 = 1:30 = 1 ora e 30 minuti. Puoi scrivere anche 1h30 o 90 min. Una cifra dopo il separatore indica minuti: 1,5 = 1 ora e 5 minuti.','wc-duration-hint'),preview=el('span',null,'wc-duration-preview');hint.id='wc-hint-'+label.replaceAll(' ','-');input.setAttribute('aria-describedby',hint.id);preview.setAttribute('aria-live','polite');
