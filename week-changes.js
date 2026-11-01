@@ -1,4 +1,4 @@
-import {CAUSES,weekDays,calendarWeek,parseDuration,validateDailyRows,localToday,decimal} from './week-changes-core.js?v=53';
+import {CAUSES,weekDays,calendarWeek,parseDuration,validateDailyRows,localToday,decimal} from './week-changes-core.js?v=54';
 const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(cls)n.className=cls;return n;};
 const dateLabel=day=>new Intl.DateTimeFormat('it-IT',{weekday:'long',day:'numeric',month:'short',timeZone:'UTC'}).format(new Date(day+'T12:00Z'));
 export function createWeekChanges({getClient,getSession,getProfile,onSaved=()=>{}}){

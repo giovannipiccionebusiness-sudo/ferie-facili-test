@@ -1,0 +1,7 @@
+export const DAY_NAMES=['Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato','Domenica'];
+const minute=s=>{if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(s||''))throw Error('Completa entrata e uscita in formato HH:MM.');return Number(s.slice(0,2))*60+Number(s.slice(3));};
+export function validateShiftWeek(week){
+ if(!Array.isArray(week)||week.length!==7)throw Error('Completa la settimana.');const bounds=week.map((slots,i)=>{if(!Array.isArray(slots)||slots.length>2)throw Error('Massimo due fasce per giorno.');let last=0,first=null;for(const s of slots){const start=minute(s.start);let end=minute(s.end);if(start===end)throw Error(DAY_NAMES[i]+': entrata e uscita coincidono.');if(end<start)end+=1440;if(end-start<30||start<last)throw Error(DAY_NAMES[i]+': fasce non ordinate, sovrapposte o inferiori a 30 minuti.');first??=start;last=end;}return {first,last};});
+ bounds.forEach((b,i)=>{const next=bounds[(i+1)%7];if(b.last>1440&&next.first!==null&&b.last-1440>next.first)throw Error(DAY_NAMES[i]+': turno notturno sovrapposto al giorno successivo.');});return week;
+}
+export function shiftReminder(slots){if(!slots.length)return 'Riposo · nessun avviso';const s=slots.at(-1);let end=minute(s.end),start=minute(s.start);if(end<start)end+=1440;const reminder=end-30;return 'Avviso alle '+String(Math.floor((reminder%1440)/60)).padStart(2,'0')+':'+String(reminder%60).padStart(2,'0')+(reminder>=1440?' del giorno successivo':'');}

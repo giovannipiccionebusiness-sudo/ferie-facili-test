@@ -1,8 +1,9 @@
-import {createDailyPresence} from './daily-presence.js?v=53';
-import {createWeekChanges} from './week-changes.js?v=53';
+import {createAdminShifts} from './admin-shifts.js?v=54';
+import {createDailyPresence} from './daily-presence.js?v=54';
+import {createWeekChanges} from './week-changes.js?v=54';
 import {createWorkerRest} from './rest-worker.js?v=48';
 import {createRestPlanner} from './rest-ui.js?v=48';
-import {createPushControls} from './push-notifications.js?v=53';
+import {createPushControls} from './push-notifications.js?v=54';
 import {openDocumentCamera} from './live-camera.js?v=49';
 import {refreshAdminMenu} from './admin-menu.js?v=34';
 import {revealWorkerTarget,refreshWorkerMenu,resetWorkerMenu} from './worker-menu.js?v=30';
@@ -67,7 +68,7 @@ function showUploadProgress(text,percent=null,completed=false,failed=false){
  uploadStatusPanel.setAttribute('aria-busy',String(!completed&&!failed));
 }
 
-function showLogged(on){queueMicrotask(()=>{if(!on){weekChanges.clear();dailyPresence.clear();}pushControls.refresh();restPlanner.refresh();workerRest.refresh();});if(!on)resetWorkerMenu();if(!on||profile?.role!=='admin'||!profile?.active){archive.clear();automaticScans.clear();multiPage.clear();}$('authArea').classList.toggle('hidden',on);$('loggedArea').classList.toggle('hidden',!on);$('workerArea').classList.toggle('hidden',!on||!profile?.active||profile.role==='admin');$('adminArea').classList.toggle('hidden',!on||!profile?.active||profile.role!=='admin')}
+function showLogged(on){queueMicrotask(()=>{if(!on){weekChanges.clear();dailyPresence.clear();adminShifts.clear();}pushControls.refresh();restPlanner.refresh();workerRest.refresh();});if(!on)resetWorkerMenu();if(!on||profile?.role!=='admin'||!profile?.active){archive.clear();automaticScans.clear();multiPage.clear();}$('authArea').classList.toggle('hidden',on);$('loggedArea').classList.toggle('hidden',!on);$('workerArea').classList.toggle('hidden',!on||!profile?.active||profile.role==='admin');$('adminArea').classList.toggle('hidden',!on||!profile?.active||profile.role!=='admin')}
 async function boot(){if(!configured){$('setupAlert').textContent='Configurazione mancante: apri INSTALLAZIONE.md. I documenti NON vengono inviati.';showLogged(false);$('loginBtn').disabled=true;$('signupBtn').disabled=true;return}
  authClient=createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{auth:{persistSession:true,autoRefreshToken:true}});
  sb=createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{accessToken:async()=>session?.access_token??null,global:{fetch:async(input,init={})=>{const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),String(input?.url||input).includes('/storage/v1/')?120000:20000);try{return await fetchWithUploadProgress(input,{...init,signal:controller.signal})}finally{clearTimeout(timer)}}}});$('setupAlert').classList.add('hidden');
@@ -491,7 +492,8 @@ const restPlanner=createRestPlanner({getSession:()=>session,getProfile:()=>profi
 const workerRest=createWorkerRest({getSession:()=>session,getProfile:()=>profile});
 const weekChanges=createWeekChanges({getClient:()=>sb,getSession:()=>session,getProfile:()=>profile,onSaved:async mode=>{msg(mode==='day'?'Giornata salvata · prova. La ritrovi nel riepilogo settimanale.':'Settimana confermata · prova.');await dailyPresence.invalidate();await refreshWorker();}});
 const dailyPresence=createDailyPresence({getClient:()=>sb,getSession:()=>session,getProfile:()=>profile,weekChanges,onError:err});
-const refreshAdminBeforeWeekChanges=refreshAdmin;refreshAdmin=async function(){await refreshAdminBeforeWeekChanges();if(adminAllowed())await weekChanges.refreshAdmin({mount:$('adminOperations'),documents:docs,people,month:$('adminMonth').value,site:$('adminSite').value});};
+const adminShifts=createAdminShifts({getClient:()=>sb,getSession:()=>session,getProfile:()=>profile});
+const refreshAdminBeforeWeekChanges=refreshAdmin;refreshAdmin=async function(){await refreshAdminBeforeWeekChanges();if(adminAllowed()){await weekChanges.refreshAdmin({mount:$('adminOperations'),documents:docs,people,month:$('adminMonth').value,site:$('adminSite').value});await adminShifts.refresh({mount:$('adminOperations'),people,site:$('adminSite').value});}};
 const appReady=boot().catch(err);
 
 
