@@ -1,11 +1,21 @@
-# Variazioni settimanali — solo app di test
+# Presenze giornaliere e settimanali — solo app di test
 
-Dopo il caricamento personale di un foglio settimanale o sostitutivo, si apre la dichiarazione di supplementare e assenze. Il file rimane caricato anche se si chiude la finestra. Il comando «Supplementare e assenze» nell'elenco permette di riaprirla e correggerla.
+Il riquadro «Le presenze, giorno per giorno» permette di scegliere un giorno trascorso, inserire supplementare e giustificativi o confermare «Nessuna variazione». Non serve aver già caricato un foglio. Il riepilogo settimanale riprende gli inserimenti dal lunedì alla domenica, anche a cavallo di mese/anno. I giorni futuri sono esclusi dal salvataggio. Il caricamento settimanale o sostitutivo apre ancora il riepilogo, limitato al mese del documento.
 
-Il lavoratore indica durate in ore/minuti e può dichiarare assenze di una giornata intera o parziali. Sono inclusi i giorni già trascorsi del mese del documento, nella settimana lunedì–domenica relativa al venerdì scelto. I giorni futuri non vengono dichiarati. L'assenza per giornata intera non viene trasformata automaticamente in ore contrattuali.
+I dati giornalieri sono canonici: una riga per lavoratore e giorno. Una conferma settimanale aggiorna le stesse righe in una transazione e controlla le versioni per evitare sovrascritture fra dispositivi. Lo storico delle dichiarazioni legate ai documenti è conservato. Nel riepilogo amministratore i dati giornalieri prevalgono sui precedenti riepiloghi, evitando duplicazioni. Le durate sono in minuti interi, visualizzate in decimali: 1:30 = 1,50; 3:40 = 3,67. L’assenza di intera giornata resta tale, senza inventare ore contrattuali.
 
-Le dichiarazioni sono conservate esclusivamente in `test_worker_week_changes`, collegate al documento e protette da RLS. L'amministratore le consulta nel riquadro «Supplementare e giustificativi · prova», in ore decimali. Non aggiornano `hour_budget_days`, budget ufficiali, notifiche o altri registri di presenza.
+## Promemoria di prova
 
-Non viene usata alcuna API IA. Le modifiche riguardano solo il repository `ferie-facili-test`. La prova con il database è transazionale ed è stata annullata, senza conservare dichiarazioni fittizie.
+Sono disattivati per impostazione iniziale. Ogni lavoratore nell’app di test sceglie un orario durante il turno, i giorni e l’attivazione. Il contratto confermato, quando disponibile, esclude anche i riposi. Nessun orario di fine turno viene dedotto dalle sole ore contrattuali.
 
-Il campo unico interpreta 1,30 / 1.30 / 1:30, 1h30, 1 ora e 30 minuti e 90 min come 90 minuti. Una cifra dopo il separatore indica minuti (1,5 = 1h05). La durata interpretata è visibile prima della conferma; durate non valide sono bloccate. I minuti interi restano il dato salvato, convertito in decimali solo in visualizzazione.
+Il cron dedicato controlla ogni minuto la finestra di 30 minuti dall’orario scelto, nel fuso Europe/Rome. Registra un solo avviso per giorno; non sollecita giornate già compilate. Il venerdì registra invece il riepilogo, se non ancora confermato o modificato successivamente. Le notifiche restano nella campanella di prova; selezionarle apre il giorno o la settimana. L’invio al telefono usa esclusivamente sottoscrizioni con app_scope=test e chiavi cifrate valide. I vecchi promemoria per caricare la foto del foglio restano indipendenti.
+
+Il service worker di test interpreta solo collegamenti relativi alla propria app; le date sono validate e il database usa sempre il lavoratore autenticato. Il collegamento resta in attesa se è necessario accedere. L’app ufficiale, i suoi avvisi e il registro hour_budget_days non sono modificati. Nessuna API IA è utilizzata.
+
+## Struttura e verifica
+
+Nuove tabelle test_daily_presence, test_daily_preferences, test_presence_week_confirmations, test_daily_notices e test_daily_deliveries. RLS e privilegi impediscono letture tra lavoratori e scritture dirette; i salvataggi passano da RPC invoker che chiamano implementazioni private con controllo del lavoratore attivo. L’amministratore può leggere i dati per verifica, senza approvazione automatica.
+
+SQL di installazione: supabase/test-daily-presence.sql, poi test-daily-rpc-wrappers.sql e test-daily-week-confirmation.sql. Scheduler: supabase/test-daily-scheduler.sql. Funzione separata: supabase/functions/test-daily-presence-push/index.ts. Nessun dato o promemoria dimostrativo persistito dalle prove.
+
+Test: parsing, confini mese/anno, versioni, giorni futuri, assenze, RLS, scritture vietate, riuso settimanale, deduplicazione, orario, riposi e isolamento della produzione. Verifica browser con dati fittizi: giornata → riepilogo → decimali amministratore, apertura dalla campanella e da URL, preferenze e «Nessuna variazione». La ricezione effettiva sul telefono dell’utente richiede una verifica sul suo dispositivo con i permessi attivati.

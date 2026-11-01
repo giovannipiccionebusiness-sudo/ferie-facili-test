@@ -21,3 +21,9 @@ export function validateChanges(rows,friday,month,today=localToday()){
   return {day:r.day,supplementary_minutes:r.supplementary_minutes,cause:r.cause,absence_scope:r.absence_scope,absence_minutes:r.absence_minutes};});
 }
 export const decimal=n=>(n/60).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2});
+export function calendarWeek(day){
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(day||''))throw Error('Giorno non valido');const d=new Date(day+'T12:00Z');if(Number.isNaN(+d)||d.toISOString().slice(0,10)!==day)throw Error('Giorno non valido');d.setUTCDate(d.getUTCDate()-((d.getUTCDay()+6)%7));return Array.from({length:7},(_,i)=>{const x=new Date(d);x.setUTCDate(x.getUTCDate()+i);return x.toISOString().slice(0,10);});
+}
+export function validateDailyRows(rows,expected,today=localToday()){
+ if(!Array.isArray(rows)||rows.length!==expected.filter(d=>d<=today).length)throw Error('Controlla tutti i giorni trascorsi');const seen=new Set();for(const r of rows){if(!expected.includes(r.day)||r.day>today||seen.has(r.day))throw Error('Giorno futuro, non valido o duplicato');seen.add(r.day);if(!Number.isInteger(r.supplementary_minutes)||r.supplementary_minutes<0||r.supplementary_minutes>1440)throw Error('Ore in più non valide');if(r.cause&&!Object.hasOwn(CAUSES,r.cause))throw Error('Scegli un giustificativo valido');if(!r.cause&&(r.absence_scope!==null||r.absence_minutes!==null))throw Error('Assenza senza giustificativo');if(r.cause&&!['full','partial'].includes(r.absence_scope))throw Error('Scegli la durata dell’assenza');if(r.absence_scope==='partial'&&(!Number.isInteger(r.absence_minutes)||r.absence_minutes<=0)||r.absence_scope!=='partial'&&r.absence_minutes!==null)throw Error('Durata assenza non valida');if(r.supplementary_minutes+(r.absence_minutes||0)>1440)throw Error('Totale oltre 24 ore');}return rows;
+}

@@ -14,3 +14,9 @@ for(const text of ['1,30','1.30','1:30','1;30','1 30','1h30','1 h 30','1 ora e 3
 assert.equal(parseDuration('1'),60);assert.equal(parseDuration('1,5'),65);assert.equal(parseDuration('24:00'),1440);assert.equal(parseDuration('0:40'),40);assert.equal(decimal(parseDuration('3:40')),'3,67');assert.equal(decimal(parseDuration('1,30')),'1,50');
 for(const text of ['','0','1:75','24:01','-1:30','1,30,0','abc','1.50h','1441 min','1:30 extra'])assert.throws(()=>parseDuration(text),text);
 console.log('Passed: flexible duration formats, precise minutes, decimal output and malformed input rejection.');
+const {calendarWeek,validateDailyRows}=await import('../week-changes-core.js');
+assert.deepEqual(calendarWeek('2026-11-01'),['2026-10-26','2026-10-27','2026-10-28','2026-10-29','2026-10-30','2026-10-31','2026-11-01']);
+assert.equal(calendarWeek('2027-01-01')[0],'2026-12-28');assert.throws(()=>calendarWeek('2026-02-30'));
+const daily={day:'2026-10-26',supplementary_minutes:90,cause:'',absence_scope:null,absence_minutes:null};assert.equal(validateDailyRows([daily],['2026-10-26'],'2026-11-01')[0].supplementary_minutes,90);
+assert.throws(()=>validateDailyRows([{...daily,day:'2026-11-02'}],['2026-11-02'],'2026-11-01'));assert.throws(()=>validateDailyRows([{...daily,cause:'M',absence_scope:'partial',absence_minutes:0}],['2026-10-26'],'2026-11-01'));
+console.log('Passed: daily rows, cross-month and year calendar weeks, future days, malformed dates and partial absences.');
