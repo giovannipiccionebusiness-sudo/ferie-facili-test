@@ -7,3 +7,5 @@ Il lavoratore indica durate in ore/minuti e può dichiarare assenze di una giorn
 Le dichiarazioni sono conservate esclusivamente in `test_worker_week_changes`, collegate al documento e protette da RLS. L'amministratore le consulta nel riquadro «Supplementare e giustificativi · prova», in ore decimali. Non aggiornano `hour_budget_days`, budget ufficiali, notifiche o altri registri di presenza.
 
 Non viene usata alcuna API IA. Le modifiche riguardano solo il repository `ferie-facili-test`. La prova con il database è transazionale ed è stata annullata, senza conservare dichiarazioni fittizie.
+
+Il campo unico interpreta 1,30 / 1.30 / 1:30, 1h30, 1 ora e 30 minuti e 90 min come 90 minuti. Una cifra dopo il separatore indica minuti (1,5 = 1h05). La durata interpretata è visibile prima della conferma; durate non valide sono bloccate. I minuti interi restano il dato salvato, convertito in decimali solo in visualizzazione.

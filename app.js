@@ -1,4 +1,4 @@
-import {createWeekChanges} from './week-changes.js?v=50';
+import {createWeekChanges} from './week-changes.js?v=51';
 import {createWorkerRest} from './rest-worker.js?v=48';
 import {createRestPlanner} from './rest-ui.js?v=48';
 import {createPushControls} from './push-notifications.js?v=43';
